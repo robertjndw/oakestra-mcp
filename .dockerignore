@@ -1,0 +1,13 @@
+.git
+.github
+.agents
+.claude
+docs
+ui
+**/node_modules
+**/dist
+*.md
+compose*.yml
+oakestra-addon.json
+Dockerfile
+.dockerignore

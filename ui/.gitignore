@@ -1,0 +1,4 @@
+node_modules
+dist
+# Written by @module-federation/vite during builds.
+.__mf__temp

@@ -1,0 +1,35 @@
+{
+  "name": "oakestra-mcp",
+  "description": "MCP server for Oakestra: lets AI agents inspect the deployment and explain service placement, with a dashboard page for connection settings and the agent activity log.",
+  "services": [
+    {
+      "service_name": "mcp",
+      "image": "ghcr.io/robertjndw/oakestra-mcp:latest",
+      "ports": {
+        "8090/tcp": "8090"
+      },
+      "environment": {
+        "OAKESTRA_API_URL": "http://system_manager:10000",
+        "ROOT_RA_URL": "http://root_resource_abstractor:11011",
+        "MCP_ENABLE_WRITES": "false"
+      },
+      "volumes": ["oakestra_mcp_data:/data"]
+    },
+    {
+      "service_name": "mcp_ui",
+      "image": "ghcr.io/robertjndw/oakestra-mcp-ui:latest",
+      "environment": {
+        "API_UPSTREAM": "http://root_mcp:8090"
+      }
+    }
+  ],
+  "volumes": [
+    {
+      "name": "oakestra_mcp_data"
+    }
+  ],
+  "ui": {
+    "service": "mcp_ui",
+    "sdk": "^0.1.0"
+  }
+}
