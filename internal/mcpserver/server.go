@@ -13,6 +13,7 @@ import (
 	"github.com/robertjndw/oakestra-mcp/internal/actions"
 	"github.com/robertjndw/oakestra-mcp/internal/auth"
 	"github.com/robertjndw/oakestra-mcp/internal/explain"
+	"github.com/robertjndw/oakestra-mcp/internal/settings"
 )
 
 // OakestraClients hands out system manager clients acting as a principal.
@@ -32,14 +33,16 @@ type Deps struct {
 	Placement explain.CandidateSource
 	// Actions enables the prepare_* and confirm_action tools together
 	// with Oakestra. Set it whether or not writes are enabled, so Catalog
-	// lists them; EnableWrites alone decides whether they are served.
+	// lists them; Settings alone decides whether they are served.
 	Actions *actions.Engine
 	// Recorder receives one Call per tool invocation (the activity log).
 	Recorder Recorder
-	// EnableWrites gates write tools on the MCP server. Catalog lists them
-	// either way so the UI can show them as unavailable.
-	EnableWrites bool
-	Version      string
+	// Settings gates write tools on the MCP server. It is read per request,
+	// so a toggle in the dashboard applies to the next call without a
+	// restart. Nil means writes are off. Catalog lists write tools either
+	// way so the UI can show them as unavailable.
+	Settings *settings.Store
+	Version  string
 }
 
 const instructions = `This server exposes an Oakestra edge orchestration deployment.
@@ -62,7 +65,7 @@ func (d Deps) version() string {
 }
 
 // hasWriteTools reports whether the write tools are registered. Whether
-// they are also served is up to EnableWrites.
+// they are also served is up to Settings.
 func (d Deps) hasWriteTools() bool { return d.Actions != nil && d.Oakestra != nil }
 
 // NewServer builds the MCP server for one principal.
@@ -71,13 +74,16 @@ func NewServer(d Deps, p auth.Principal) *sdk.Server {
 }
 
 func newServer(d Deps, p auth.Principal, schemas *sdk.SchemaCache) *sdk.Server {
+	// Read the switch once so the instructions and the tool list of this
+	// server agree even if an Admin flips it mid-request.
+	writes := d.Settings.WritesEnabled()
 	instr := instructions
-	if d.EnableWrites && d.hasWriteTools() {
+	if writes && d.hasWriteTools() {
 		instr += writeInstructions
 	}
 	s := sdk.NewServer(&sdk.Implementation{Name: "oakestra-mcp", Title: "Oakestra", Version: d.version()},
 		&sdk.ServerOptions{Instructions: instr, SchemaCache: schemas})
-	register(&registry{d: d, p: p, server: s})
+	register(&registry{d: d, p: p, server: s, writes: writes})
 	return s
 }
 

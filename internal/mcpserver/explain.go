@@ -45,8 +45,9 @@ const checksDoc = "Checks, in the order Oakestra's scheduler applies them: activ
 func registerPlacementTools(r *registry) {
 	if r.d.Oakestra != nil {
 		addTool(r, ToolInfo{
-			Name:  "explain_placement",
-			Title: "Explain service placement",
+			Name:    "explain_placement",
+			Title:   "Explain service placement",
+			Summary: "Why a service runs where it runs, or why it does not run.",
 			Description: "Explain why a deployed service runs where it runs, or why it is not running. Loads the service " +
 				"(by ID or name, with the caller's permissions) and re-runs Oakestra's placement logic on live resource " +
 				"data: every cluster and worker with each check's verdict and numbers, the cluster and worker the " +
@@ -58,8 +59,9 @@ func registerPlacementTools(r *registry) {
 	}
 
 	addTool(r, ToolInfo{
-		Name:  "dry_run_placement",
-		Title: "Dry-run placement",
+		Name:    "dry_run_placement",
+		Title:   "Dry-run placement",
+		Summary: "Where an SLA would be placed right now, without deploying.",
 		Description: "Predict where an SLA would be placed if it were deployed now, without deploying anything. " +
 			"Accepts a full application SLA or a single microservice object and returns one result per microservice: " +
 			"every cluster and worker with each check's verdict and numbers, the cluster and worker the scheduler would " +

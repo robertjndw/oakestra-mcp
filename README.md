@@ -1,5 +1,24 @@
 # oakestra-mcp
-MCP Server for Oakestra
+
+[![CI](https://github.com/robertjndw/oakestra-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/robertjndw/oakestra-mcp/actions/workflows/ci.yml)
+
+MCP server for Oakestra. Agents can look at clusters, applications and services, ask why a service
+landed on a given node, and (with write mode on) deploy, scale, undeploy and delete. Every change
+goes through a plan that a human has to approve. It runs as an Oakestra addon and adds an MCP page
+to the dashboard.
+
+![Connect page with write mode, endpoint and client setup](docs/screenshots/connect.png)
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/tools.png" alt="Tool catalog with collapsible descriptions"></td>
+    <td><img src="docs/screenshots/activity-detail.png" alt="Agent activity log with a call's redacted arguments"></td>
+  </tr>
+  <tr>
+    <td align="center">Tool catalog</td>
+    <td align="center">Agent activity</td>
+  </tr>
+</table>
 
 ## Addon / dashboard UI
 
@@ -7,9 +26,10 @@ The repository ships as an Oakestra addon with two services, described in `oakes
 `mcp` (the Go server, port 8090) and `mcp_ui` (a small nginx image with the dashboard-v2 UI
 addon from `ui/`). The UI adds an **MCP** entry to the dashboard sidebar with two pages:
 
-- **Connect**: the MCP endpoint URLs (the server's `PUBLIC_URL` if set, plus the dashboard-proxied
+- **Connect**: the write mode switch, the MCP endpoint URLs (the server's `PUBLIC_URL` if set, plus the dashboard-proxied
   `/addon-assets/oakestra-mcp/api/mcp`), how to get a token, copy-paste configs for Claude Code,
-  Cursor, VS Code and generic clients, and the tool catalog with read/write badges.
+  Cursor, VS Code and generic clients, and the tool catalog with read/write badges. Each tool shows
+  a short summary; click Details for the full text the agent gets.
 - **Activity**: the agent call log with tool, outcome and (for Admins) user filters, paging,
   a 10 second refresh and a detail drawer with the redacted arguments.
 
@@ -60,9 +80,16 @@ docker buildx build --build-context dashboard=../oakestra-dashboard-v2 -t oakest
 
 ## Write tools
 
-Write tools are off by default. Set `MCP_ENABLE_WRITES=true` on the `mcp` service to serve them.
-Only users with the `Admin`, `Organization_Admin` or `Application_Provider` role may use them, and
-Oakestra still checks ownership on every call.
+Write tools are off by default. An Admin turns them on or off with the **Write mode** switch on
+the Connect page (or `PUT /settings`, see [docs/api.md](docs/api.md)); the change applies to the
+next agent request without a restart and is stored in `$DATA_DIR/settings.json`.
+`MCP_ENABLE_WRITES` only sets the initial value for a fresh data volume: once the setting has been
+changed in the UI, the stored value wins.
+
+![Confirmation before write mode is enabled](docs/screenshots/write-mode.png)
+
+Only users with the `Admin`, `Organization_Admin` or `Application_Provider` role may use the write
+tools, and Oakestra still checks ownership on every call.
 
 Every change takes two steps:
 
@@ -81,3 +108,18 @@ created in `$DATA_DIR/secret` (mode 0600) on first start. Deleting the key inval
 tokens. Scaling counts every instance Oakestra lists for a service, whatever its status, and scales
 down by removing the highest instance numbers first. New instances are scheduled asynchronously, so
 check them afterwards with `get_service` or `explain_placement`.
+
+## Container images
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the Go and UI tests on every push and
+pull request, then builds both images for `linux/amd64` and `linux/arm64`:
+
+| Image | Built from |
+| --- | --- |
+| `ghcr.io/robertjndw/oakestra-mcp` | `Dockerfile` |
+| `ghcr.io/robertjndw/oakestra-mcp-ui` | `ui/Dockerfile`, with the dashboard checked out at `ui/DASHBOARD_REF` |
+
+Pushes to `main` publish `latest` (what `oakestra-addon.json` pulls) and `sha-<commit>`; tags
+`vX.Y.Z` also publish `X.Y.Z` and `X.Y`. Pull requests build the images without pushing them.
+GHCR creates new packages as private, so make both public once after the first push, otherwise
+root orchestrators need credentials to pull them.

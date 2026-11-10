@@ -60,8 +60,9 @@ type listNodesOut struct {
 
 func registerInfraTools(r *registry) {
 	addTool(r, ToolInfo{
-		Name:  "list_clusters",
-		Title: "List clusters",
+		Name:    "list_clusters",
+		Title:   "List clusters",
+		Summary: "Clusters with capacity, usage and runtimes.",
 		Description: "List every Oakestra cluster known to the root orchestrator, including inactive ones, " +
 			"with its aggregated capacity (CPU cores, memory, GPUs, VRAM), current CPU/memory usage, " +
 			"supported virtualization runtimes, number of active workers and whether it is active. " +
@@ -70,8 +71,9 @@ func registerInfraTools(r *registry) {
 	}, r.listClusters)
 
 	addTool(r, ToolInfo{
-		Name:  "list_nodes",
-		Title: "List worker nodes",
+		Name:    "list_nodes",
+		Title:   "List worker nodes",
+		Summary: "Worker nodes of one cluster with capacity and usage.",
 		Description: "List the worker nodes of one cluster with their architecture, virtualization runtimes, " +
 			"CPU, memory, GPU and VRAM capacity, current usage and whether they are active. " +
 			"Data comes straight from that cluster's resource abstractor, so it fails if the cluster is " +

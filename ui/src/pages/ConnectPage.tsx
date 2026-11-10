@@ -1,17 +1,17 @@
-import { useAddonApi } from '@oakestra/dashboard-sdk';
+import { hasAnyRole, useAddonApi, useCurrentUser, useNotify } from '@oakestra/dashboard-sdk';
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
   Badge,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
+  ConfirmDialog,
+  Label,
   PageHeader,
   QueryErrorAlert,
   Skeleton,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -24,6 +24,7 @@ import {
   TabsTrigger,
 } from '@oakestra/ui';
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 
 import {
   claudeCodeCommand,
@@ -35,7 +36,7 @@ import {
   vscodeConfig,
 } from '../lib/snippets';
 import type { ServerInfo, ToolKind } from '../lib/types';
-import { infoQuery } from '../queries';
+import { infoQuery, useUpdateSettings } from '../queries';
 import { CodeBlock } from './CodeBlock';
 
 export default function ConnectPage() {
@@ -73,15 +74,7 @@ function ConnectContent({ info, apiBase }: { info: ServerInfo; apiBase: string }
 
   return (
     <>
-      {!info.writes_enabled ? (
-        <Alert>
-          <AlertTitle>Read-only</AlertTitle>
-          <AlertDescription>
-            Write tools are disabled on this server (MCP_ENABLE_WRITES is not true). Agents can
-            inspect the deployment but cannot change it.
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      <WriteModeCard writesEnabled={info.writes_enabled} />
 
       <Card>
         <CardHeader>
@@ -165,8 +158,8 @@ function ConnectContent({ info, apiBase }: { info: ServerInfo; apiBase: string }
         <CardHeader>
           <CardTitle>Tools</CardTitle>
           <CardDescription>
-            {info.tools.length} tools. Write tools change the deployment and only work when writes
-            are enabled.
+            {info.tools.length} tools. Write tools change the deployment and are only served while
+            write mode is on.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -185,7 +178,7 @@ function ConnectContent({ info, apiBase }: { info: ServerInfo; apiBase: string }
                   <TableCell className="mcp:font-mono mcp:text-xs">{tool.name}</TableCell>
                   <TableCell>{tool.title}</TableCell>
                   <TableCell className="mcp:max-w-xl mcp:whitespace-normal mcp:text-muted-foreground">
-                    {tool.description}
+                    <ToolDescription summary={tool.summary} description={tool.description} />
                   </TableCell>
                   <TableCell>
                     <KindBadge kind={tool.kind} writesEnabled={info.writes_enabled} />
@@ -197,6 +190,87 @@ function ConnectContent({ info, apiBase }: { info: ServerInfo; apiBase: string }
         </CardContent>
       </Card>
     </>
+  );
+}
+
+function WriteModeCard({ writesEnabled }: { writesEnabled: boolean }) {
+  const api = useAddonApi();
+  const notify = useNotify();
+  // The server enforces this too (PUT /settings answers 403); the check only avoids offering a
+  // switch that cannot work.
+  const isAdmin = hasAnyRole(useCurrentUser(), ['Admin']);
+  const update = useUpdateSettings(api);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const save = (next: boolean) =>
+    update.mutate(
+      { writes_enabled: next },
+      {
+        onSuccess: () => {
+          setConfirmOpen(false);
+          notify.success(next ? 'Write mode enabled' : 'Write mode disabled');
+        },
+        onError: (error) => notify.error('Could not change write mode', { description: error.message }),
+      },
+    );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Write mode</CardTitle>
+        <CardDescription>
+          {writesEnabled
+            ? 'Agents can deploy, scale, undeploy and delete through the prepare and confirm tools. Every change still needs the human to approve the plan, and only users with the Admin, Organization_Admin or Application_Provider role can make one.'
+            : 'Agents can inspect the deployment but cannot change it.'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="mcp:flex mcp:items-center mcp:gap-3">
+          <Switch
+            id="mcp-write-mode"
+            checked={writesEnabled}
+            disabled={!isAdmin || update.isPending}
+            // Turning writes on widens what every agent can do, so it asks first; turning them off
+            // only narrows it and applies at once.
+            onCheckedChange={(next) => (next ? setConfirmOpen(true) : save(false))}
+          />
+          <Label htmlFor="mcp-write-mode">{writesEnabled ? 'Enabled' : 'Disabled'}</Label>
+        </div>
+        {!isAdmin ? (
+          <p className="mcp:mt-2 mcp:text-sm mcp:text-muted-foreground">
+            Only Admins can change this.
+          </p>
+        ) : null}
+      </CardContent>
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Enable write mode?"
+        description="Agents of users with a write role can then plan and, after the user approves, apply deployments, scaling, undeploys and deletions. The change applies to the next agent request."
+        confirmLabel="Enable"
+        pending={update.isPending}
+        onConfirm={() => save(true)}
+      />
+    </Card>
+  );
+}
+
+// The full description is written for the agent and runs to several sentences, so the table shows
+// the summary and keeps the rest one click away.
+function ToolDescription({ summary, description }: { summary: string; description: string }) {
+  return (
+    <details className="mcp:group">
+      <summary className="mcp:cursor-pointer mcp:list-none mcp:[&::-webkit-details-marker]:hidden">
+        {summary || description}{' '}
+        <span className="mcp:text-xs mcp:underline mcp:underline-offset-2 mcp:group-open:hidden">
+          Details
+        </span>
+        <span className="mcp:hidden mcp:text-xs mcp:underline mcp:underline-offset-2 mcp:group-open:inline">
+          Hide
+        </span>
+      </summary>
+      <p className="mcp:mt-2 mcp:text-xs">{description}</p>
+    </details>
   );
 }
 

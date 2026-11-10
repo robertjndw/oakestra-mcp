@@ -171,7 +171,7 @@ func TestToolListMatchesCatalog(t *testing.T) {
 		t.Fatalf("catalog has %d tools, server %d", len(cat), len(res.Tools))
 	}
 	for _, info := range cat {
-		if !got[info.Name] || info.Kind != KindRead || info.Description == "" || info.Title == "" {
+		if !got[info.Name] || info.Kind != KindRead || info.Description == "" || info.Title == "" || info.Summary == "" {
 			t.Errorf("bad catalog entry %+v", info)
 		}
 	}

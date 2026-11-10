@@ -119,16 +119,18 @@ type getServiceIn struct {
 
 func registerAppTools(r *registry) {
 	addTool(r, ToolInfo{
-		Name:  "list_applications",
-		Title: "List applications",
+		Name:    "list_applications",
+		Title:   "List applications",
+		Summary: "Applications visible to the caller.",
 		Description: "List the Oakestra applications visible to the caller (admins see all, others only their own) " +
 			"with ID, name, namespace, description and the IDs of their services.",
 		Kind: KindRead,
 	}, r.listApplications)
 
 	addTool(r, ToolInfo{
-		Name:  "get_application",
-		Title: "Get application",
+		Name:    "get_application",
+		Title:   "Get application",
+		Summary: "One application with a status summary of its services.",
 		Description: "Get one application by ID or name, together with a status summary of each of its services " +
 			"(status and how many instances are running). If several applications share the name, " +
 			"the error lists their IDs; call again with an ID.",
@@ -136,8 +138,9 @@ func registerAppTools(r *registry) {
 	}, r.getApplication)
 
 	addTool(r, ToolInfo{
-		Name:  "list_services",
-		Title: "List services",
+		Name:    "list_services",
+		Title:   "List services",
+		Summary: "Services with status and instance counts.",
 		Description: "List services (microservices) visible to the caller, optionally only those of one application " +
 			"(by ID or name). Each entry has the service status and the number of total and running instances. " +
 			"Use get_service for resource requirements and where each instance runs.",
@@ -145,8 +148,9 @@ func registerAppTools(r *registry) {
 	}, r.listServices)
 
 	addTool(r, ToolInfo{
-		Name:  "get_service",
-		Title: "Get service",
+		Name:    "get_service",
+		Title:   "Get service",
+		Summary: "One service with requirements and where each instance runs.",
 		Description: "Get one service by ID or name: its image, virtualization, requested CPU/memory/GPUs, status, " +
 			"and every instance with its status, status detail, cluster and worker. " +
 			"Use this to see where a service runs or why an instance is not running.",

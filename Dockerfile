@@ -1,13 +1,16 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.26-alpine AS build
+# Cross-compile on the build host instead of emulating the target, so multi-arch
+# builds take seconds rather than minutes under QEMU.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 ARG VERSION=0.1.0
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/oakestra-mcp ./cmd/oakestra-mcp
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/oakestra-mcp ./cmd/oakestra-mcp
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/oakestra-mcp /usr/local/bin/oakestra-mcp

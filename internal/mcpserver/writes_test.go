@@ -13,6 +13,7 @@ import (
 	"github.com/robertjndw/oakestra-mcp/internal/auth"
 	"github.com/robertjndw/oakestra-mcp/internal/oakestra"
 	"github.com/robertjndw/oakestra-mcp/internal/oakestra/oakestratest"
+	"github.com/robertjndw/oakestra-mcp/internal/settings"
 )
 
 var writeTools = []string{"prepare_deploy_application", "prepare_scale_service", "prepare_undeploy_service",
@@ -26,7 +27,7 @@ func writeDeps(t *testing.T, fakeURL string, enable bool) (Deps, *memRecorder) {
 	}
 	rec := &memRecorder{}
 	eng := actions.NewEngine(actions.NewMemoryStore(), []byte(strings.Repeat("k", 32)), 5*time.Minute, nil)
-	return Deps{Oakestra: f, Actions: eng, Recorder: rec, EnableWrites: enable}, rec
+	return Deps{Oakestra: f, Actions: eng, Recorder: rec, Settings: settings.Memory(settings.Settings{WritesEnabled: enable})}, rec
 }
 
 func connect(t *testing.T, d Deps, p auth.Principal) *sdk.ClientSession {
@@ -68,7 +69,7 @@ func TestWriteToolsHiddenWhenDisabledButInCatalog(t *testing.T) {
 		cat[i.Name] = i
 	}
 	for _, name := range writeTools {
-		if info, ok := cat[name]; !ok || info.Kind != KindWrite || info.Description == "" {
+		if info, ok := cat[name]; !ok || info.Kind != KindWrite || info.Description == "" || info.Summary == "" {
 			t.Errorf("catalog entry for %s: %+v", name, info)
 		}
 	}
@@ -86,7 +87,11 @@ func TestWriteToolsHiddenWhenDisabledButInCatalog(t *testing.T) {
 		t.Error("read tools should still be served")
 	}
 
-	d.EnableWrites = true
+	// Flipping the same store must apply to the next connection without
+	// rebuilding Deps, which is what the dashboard toggle relies on.
+	if err := d.Settings.Set(settings.Settings{WritesEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
 	tools = listTools(t, connect(t, d, alice()))
 	for _, name := range writeTools {
 		tool := tools[name]

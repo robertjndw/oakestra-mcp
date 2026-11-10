@@ -1,4 +1,4 @@
-// Mirrors docs/api.md in the backend repository (GET /info and GET /activity).
+// Mirrors docs/api.md in the backend repository (GET /info, /settings and /activity).
 
 export type ToolKind = 'read' | 'write';
 export type Outcome = 'ok' | 'error' | 'denied';
@@ -6,6 +6,9 @@ export type Outcome = 'ok' | 'error' | 'denied';
 export interface ToolInfo {
   name: string;
   title: string;
+  /** One line for people. */
+  summary: string;
+  /** What the agent reads; long on purpose. */
   description: string;
   kind: ToolKind;
 }
@@ -19,6 +22,10 @@ export interface ServerInfo {
   writes_enabled: boolean;
   user: { username: string; roles: string[]; organization: string };
   tools: ToolInfo[];
+}
+
+export interface Settings {
+  writes_enabled: boolean;
 }
 
 export interface ActivityItem {

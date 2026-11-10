@@ -21,8 +21,12 @@ const (
 
 // ToolInfo is the catalog entry for a tool, as /info reports it.
 type ToolInfo struct {
-	Name        string `json:"name"`
-	Title       string `json:"title"`
+	Name  string `json:"name"`
+	Title string `json:"title"`
+	// Summary is a one-line description for people (the dashboard's tool
+	// list). Description is what the agent reads, so it stays detailed:
+	// it is the only documentation a model gets about the tool.
+	Summary     string `json:"summary"`
 	Description string `json:"description"`
 	Kind        Kind   `json:"kind"`
 	// planOnly marks write tools that only plan (prepare_*). They stay
@@ -96,6 +100,8 @@ type registry struct {
 	d      Deps
 	p      auth.Principal
 	server *sdk.Server
+	// writes says whether write tools are served on this server.
+	writes bool
 	infos  []ToolInfo
 }
 
@@ -104,7 +110,7 @@ func addTool[In, Out any](r *registry, info ToolInfo, h toolFunc[In, Out]) {
 	if r.server == nil {
 		return
 	}
-	if info.Kind == KindWrite && !r.d.EnableWrites {
+	if info.Kind == KindWrite && !r.writes {
 		return
 	}
 	readOnly := info.Kind == KindRead || info.planOnly

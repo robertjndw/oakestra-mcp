@@ -45,8 +45,9 @@ func registerWriteTools(r *registry) {
 		"Application_Provider role.", formatTTL(ttl))
 
 	addTool(r, ToolInfo{
-		Name:  "prepare_deploy_application",
-		Title: "Prepare: deploy application",
+		Name:    "prepare_deploy_application",
+		Title:   "Prepare: deploy application",
+		Summary: "Plan deploying an application from an SLA.",
 		Description: "Plan deploying a new application from an SLA: create the application with its microservices, " +
 			"then request instances_per_service instances (default 1) of each microservice. Validates the SLA and " +
 			"includes a placement dry run per microservice; a microservice that would not be placed right now is a " +
@@ -56,8 +57,9 @@ func registerWriteTools(r *registry) {
 	}, r.prepareDeploy)
 
 	addTool(r, ToolInfo{
-		Name:  "prepare_scale_service",
-		Title: "Prepare: scale service",
+		Name:    "prepare_scale_service",
+		Title:   "Prepare: scale service",
+		Summary: "Plan scaling a service to a number of instances.",
 		Description: "Plan bringing a service to a number of instances. Scaling up requests new instances (with a " +
 			"placement dry run); scaling down undeploys the highest-numbered instances. Every instance Oakestra lists " +
 			"counts, whatever its status." + prepareDoc,
@@ -66,8 +68,9 @@ func registerWriteTools(r *registry) {
 	}, r.prepareScale)
 
 	addTool(r, ToolInfo{
-		Name:  "prepare_undeploy_service",
-		Title: "Prepare: undeploy service",
+		Name:    "prepare_undeploy_service",
+		Title:   "Prepare: undeploy service",
+		Summary: "Plan undeploying one or all instances of a service.",
 		Description: "Plan undeploying one instance of a service (instance_number) or all of its instances. The " +
 			"service stays registered and can be scaled up again; use prepare_delete_application to remove it." + prepareDoc,
 		Kind:     KindWrite,
@@ -75,8 +78,9 @@ func registerWriteTools(r *registry) {
 	}, r.prepareUndeploy)
 
 	addTool(r, ToolInfo{
-		Name:  "prepare_delete_application",
-		Title: "Prepare: delete application",
+		Name:    "prepare_delete_application",
+		Title:   "Prepare: delete application",
+		Summary: "Plan deleting an application and its services.",
 		Description: "Plan deleting an application. The plan lists every service and instance that goes away with " +
 			"it; this cannot be undone." + prepareDoc,
 		Kind:     KindWrite,
@@ -84,8 +88,9 @@ func registerWriteTools(r *registry) {
 	}, r.prepareDelete)
 
 	addTool(r, ToolInfo{
-		Name:  "confirm_action",
-		Title: "Confirm action",
+		Name:    "confirm_action",
+		Title:   "Confirm action",
+		Summary: "Run a prepared plan after the human approved it.",
 		Description: "Execute an action prepared by a prepare_* tool. Call this only after the human has seen the " +
 			"plan and explicitly approved it. It re-checks Oakestra's state and refuses if the plan changed, if the " +
 			fmt.Sprintf("token expired (tokens last %s) or was already used, or if another user prepared it. ", formatTTL(ttl)) +

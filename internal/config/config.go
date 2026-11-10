@@ -29,7 +29,8 @@ type Config struct {
 	DataDir       string
 	// PublicURL is the MCP URL agents should use, as reachable from outside.
 	// It is only displayed, so an empty value is fine.
-	PublicURL         string
+	PublicURL string
+	// EnableWrites is the initial write mode; see settings.Open.
 	EnableWrites      bool
 	ConfirmTTL        time.Duration
 	ActivityRetention time.Duration

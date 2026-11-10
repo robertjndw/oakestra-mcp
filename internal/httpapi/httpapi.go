@@ -13,10 +13,14 @@ import (
 
 	"github.com/robertjndw/oakestra-mcp/internal/auth"
 	"github.com/robertjndw/oakestra-mcp/internal/mcpserver"
+	"github.com/robertjndw/oakestra-mcp/internal/settings"
 )
 
 // MCPPath is where the MCP endpoint is mounted.
 const MCPPath = "/mcp"
+
+// maxSettingsBody bounds PUT /settings; the body is a handful of booleans.
+const maxSettingsBody = 4 << 10
 
 // maxMCPBody bounds request bodies; SLAs are the largest legitimate input
 // and are nowhere near this.
@@ -29,10 +33,12 @@ type Options struct {
 	Auth func(http.Handler) http.Handler
 	MCP  http.Handler
 	// Tools is the catalog reported by /info.
-	Tools         []mcpserver.ToolInfo
-	Version       string
-	PublicURL     string
-	WritesEnabled bool
+	Tools     []mcpserver.ToolInfo
+	Version   string
+	PublicURL string
+	// Settings backs writes_enabled in /info and the /settings routes. Nil
+	// reports writes as disabled and leaves /settings unmounted.
+	Settings *settings.Store
 	// ActivityHandler is mounted at /activity when set. The principal is on
 	// the request context (auth.FromContext).
 	ActivityHandler http.Handler
@@ -53,6 +59,12 @@ func New(o Options) http.Handler {
 	mcp := jsonErrors(http.MaxBytesHandler(o.MCP, maxMCPBody))
 	mux.Handle(MCPPath, o.Auth(mcp))
 	mux.Handle("GET /info", o.Auth(http.HandlerFunc(o.info)))
+	if o.Settings != nil {
+		mux.Handle("GET /settings", o.Auth(http.HandlerFunc(o.getSettings)))
+		mux.Handle("PUT /settings", o.Auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			o.putSettings(log, w, r)
+		})))
+	}
 	if o.ActivityHandler != nil {
 		mux.Handle("/activity", o.Auth(o.ActivityHandler))
 	}
@@ -93,10 +105,51 @@ func (o Options) info(w http.ResponseWriter, r *http.Request) {
 		Version:       o.Version,
 		MCPPath:       MCPPath,
 		PublicURL:     o.PublicURL,
-		WritesEnabled: o.WritesEnabled,
+		WritesEnabled: o.Settings.WritesEnabled(),
 		User:          infoUser{Username: p.User, Roles: roles, Organization: p.Organization},
 		Tools:         tools,
 	})
+}
+
+func (o Options) getSettings(w http.ResponseWriter, r *http.Request) {
+	WriteJSON(w, http.StatusOK, o.Settings.Get())
+}
+
+// putSettings replaces the settings. Only Admins may change them: turning
+// writes on lets every user with a write role change the deployment, so it
+// is a deployment-wide decision, not a per-organization one.
+func (o Options) putSettings(log *slog.Logger, w http.ResponseWriter, r *http.Request) {
+	p, _ := auth.FromContext(r.Context())
+	if !p.IsAdmin() {
+		WriteError(w, http.StatusForbidden, "only Admins may change the server settings")
+		return
+	}
+	// A pointer so an empty or misspelled body is rejected instead of
+	// silently turning writes off.
+	var body struct {
+		WritesEnabled *bool `json:"writes_enabled"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxSettingsBody))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid settings body: "+err.Error())
+		return
+	}
+	if body.WritesEnabled == nil {
+		WriteError(w, http.StatusBadRequest, "writes_enabled is required")
+		return
+	}
+	next := settings.Settings{WritesEnabled: *body.WritesEnabled}
+	prev := o.Settings.Get()
+	if err := o.Settings.Set(next); err != nil {
+		log.Error("saving settings", "err", err)
+		WriteError(w, http.StatusInternalServerError, "could not save the settings")
+		return
+	}
+	if prev != next {
+		log.Info("settings changed", "user", p.User, "writes_enabled", next.WritesEnabled)
+	}
+	WriteJSON(w, http.StatusOK, next)
 }
 
 // WriteJSON writes v with the given status.

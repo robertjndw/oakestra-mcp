@@ -21,6 +21,7 @@ import (
 	"github.com/robertjndw/oakestra-mcp/internal/httpapi"
 	"github.com/robertjndw/oakestra-mcp/internal/mcpserver"
 	"github.com/robertjndw/oakestra-mcp/internal/oakestra"
+	"github.com/robertjndw/oakestra-mcp/internal/settings"
 )
 
 // version is overridden at build time with -ldflags "-X main.version=...".
@@ -69,6 +70,13 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// MCP_ENABLE_WRITES only seeds the setting; once an Admin toggles it in
+	// the dashboard, the stored value wins.
+	st, err := settings.Open(filepath.Join(cfg.DataDir, "settings.json"),
+		settings.Settings{WritesEnabled: cfg.EnableWrites})
+	if err != nil {
+		return err
+	}
 	engine := actions.NewEngine(actStore, secret, cfg.ConfirmTTL, cands)
 	recorder := activity.NewRecorder(actStore)
 	// Deferred after the store so it runs first and flushes queued records
@@ -76,13 +84,13 @@ func run(log *slog.Logger) error {
 	defer recorder.Close()
 
 	deps := mcpserver.Deps{
-		Oakestra:     oak,
-		Candidates:   cands,
-		Recorder:     recorder,
-		Placement:    cands,
-		Actions:      engine,
-		EnableWrites: cfg.EnableWrites,
-		Version:      version,
+		Oakestra:   oak,
+		Candidates: cands,
+		Recorder:   recorder,
+		Placement:  cands,
+		Actions:    engine,
+		Settings:   st,
+		Version:    version,
 	}
 	handler := httpapi.New(httpapi.Options{
 		Auth:            authn.Middleware(log),
@@ -90,7 +98,7 @@ func run(log *slog.Logger) error {
 		Tools:           mcpserver.Catalog(deps),
 		Version:         version,
 		PublicURL:       cfg.PublicURL,
-		WritesEnabled:   cfg.EnableWrites,
+		Settings:        st,
 		ActivityHandler: actStore.Handler(),
 		Logger:          log,
 	})
@@ -113,7 +121,7 @@ func run(log *slog.Logger) error {
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", cfg.ListenAddr, "oakestra_api", cfg.OakestraAPIURL,
-			"root_ra", cfg.RootRAURL, "cluster_ra_port", cfg.ClusterRAPort, "writes_enabled", cfg.EnableWrites,
+			"root_ra", cfg.RootRAURL, "cluster_ra_port", cfg.ClusterRAPort, "writes_enabled", st.WritesEnabled(),
 			"version", version)
 		errc <- srv.ListenAndServe()
 	}()

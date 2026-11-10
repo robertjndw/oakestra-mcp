@@ -9,29 +9,41 @@ import (
 
 	"github.com/robertjndw/oakestra-mcp/internal/auth"
 	"github.com/robertjndw/oakestra-mcp/internal/mcpserver"
+	"github.com/robertjndw/oakestra-mcp/internal/settings"
 )
 
-// fakeAuth accepts "Bearer good" only, standing in for the real
-// authenticator, which has its own tests.
+// fakeAuth accepts "Bearer good" (an Admin) and "Bearer user" (an
+// Application_Provider) only, standing in for the real authenticator,
+// which has its own tests.
 func fakeAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer good" {
+		var p auth.Principal
+		switch r.Header.Get("Authorization") {
+		case "Bearer good":
+			p = auth.Principal{User: "alice", Roles: []string{"Admin"}, Organization: "org1", AccessToken: "x"}
+		case "Bearer user":
+			p = auth.Principal{User: "bob", Roles: []string{"Application_Provider"}, Organization: "org1", AccessToken: "y"}
+		default:
 			WriteError(w, http.StatusUnauthorized, "nope")
 			return
 		}
-		p := auth.Principal{User: "alice", Roles: []string{"Admin"}, Organization: "org1", AccessToken: "x"}
 		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
 	})
 }
 
 func newHandler(activity http.Handler) http.Handler {
-	d := mcpserver.Deps{Version: "test"}
+	return newHandlerWith(activity, settings.Memory(settings.Settings{}))
+}
+
+func newHandlerWith(activity http.Handler, st *settings.Store) http.Handler {
+	d := mcpserver.Deps{Version: "test", Settings: st}
 	return New(Options{
 		Auth:            fakeAuth,
 		MCP:             mcpserver.Handler(d),
 		Tools:           []mcpserver.ToolInfo{{Name: "list_clusters", Title: "List clusters", Description: "d", Kind: mcpserver.KindRead}},
 		Version:         "0.1.0",
 		PublicURL:       "http://root.example:8090/mcp",
+		Settings:        st,
 		ActivityHandler: activity,
 	})
 }
@@ -73,6 +85,37 @@ func TestInfo(t *testing.T) {
 	if got.Name != "oakestra-mcp" || got.MCPPath != "/mcp" || got.User.Username != "alice" ||
 		got.PublicURL == "" || len(got.Tools) != 1 || got.Tools[0].Kind != "read" {
 		t.Fatalf("unexpected info %+v", got)
+	}
+}
+
+func TestSettings(t *testing.T) {
+	st := settings.Memory(settings.Settings{})
+	h := newHandlerWith(nil, st)
+
+	if rec := do(h, http.MethodPut, "/settings", "user", `{"writes_enabled":true}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin PUT: %d %s", rec.Code, rec.Body)
+	}
+	for _, body := range []string{`{}`, `{"writes":true}`, `nope`} {
+		if rec := do(h, http.MethodPut, "/settings", "good", body); rec.Code != http.StatusBadRequest {
+			t.Fatalf("PUT %s: %d %s", body, rec.Code, rec.Body)
+		}
+	}
+	if st.WritesEnabled() {
+		t.Fatal("rejected requests changed the settings")
+	}
+
+	rec := do(h, http.MethodPut, "/settings", "good", `{"writes_enabled":true}`)
+	if rec.Code != http.StatusOK || !st.WritesEnabled() {
+		t.Fatalf("admin PUT: %d %s", rec.Code, rec.Body)
+	}
+	var info infoResponse
+	rec = do(h, http.MethodGet, "/info", "user", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil || !info.WritesEnabled {
+		t.Fatalf("/info should report the new value: %s", rec.Body)
+	}
+	rec = do(h, http.MethodGet, "/settings", "user", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"writes_enabled":true`) {
+		t.Fatalf("GET /settings: %d %s", rec.Code, rec.Body)
 	}
 }
 

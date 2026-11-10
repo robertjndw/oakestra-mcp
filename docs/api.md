@@ -24,17 +24,34 @@ MCP Streamable HTTP endpoint (stateless, JSON responses).
   "writes_enabled": false,
   "user": {"username": "Admin", "roles": ["Admin"], "organization": "..."},
   "tools": [
-    {"name": "list_clusters", "title": "List clusters", "description": "...", "kind": "read"}
+    {"name": "list_clusters", "title": "List clusters", "summary": "...", "description": "...", "kind": "read"}
   ]
 }
 ```
 
 `public_url` comes from `PUBLIC_URL` and is empty when unset. `kind` is `read` or `write`.
+`summary` is a one-line description for people; `description` is the text the agent gets in
+`tools/list` and is deliberately detailed.
 Write tools (`prepare_deploy_application`, `prepare_scale_service`, `prepare_undeploy_service`,
 `prepare_delete_application`, `confirm_action`) are listed even when writes are disabled, so the
-UI can show them as unavailable; `writes_enabled` says whether `/mcp` serves them. The `prepare_*`
+UI can show them as unavailable; `writes_enabled` says whether `/mcp` serves them right now (see
+`/settings`). The `prepare_*`
 tools count as `write` because they belong to the write workflow, although they change nothing in
 Oakestra on their own.
+
+## `GET /settings`, `PUT /settings`
+
+The settings an Admin can change at runtime. Any authenticated user may read them; only `Admin`
+may write them (otherwise `403`).
+
+```json
+{"writes_enabled": true}
+```
+
+`PUT` takes the same object; `writes_enabled` is required and unknown fields are rejected with
+`400`. The response is the stored settings. A change applies to the next `/mcp` request without a
+restart and is kept in `$DATA_DIR/settings.json`. Until that file exists, `MCP_ENABLE_WRITES`
+provides the initial value.
 
 ## `GET /activity`
 
