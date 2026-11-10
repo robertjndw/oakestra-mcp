@@ -5,10 +5,13 @@ export const SERVER_NAME = 'oakestra';
 export const TOKEN_PLACEHOLDER = '<refresh_token>';
 const API_PLACEHOLDER = '<oakestra api>';
 
-/** The MCP URL that goes through the dashboard's addon proxy, for setups without a public URL. */
-export function proxiedMcpUrl(origin: string, mcpPath = '/mcp'): string {
+/**
+ * The MCP URL that goes through the dashboard's addon proxy, for setups without a public URL.
+ * `apiBase` is the addon API's origin-relative base (`useAddonApi().baseUrl`).
+ */
+export function proxiedMcpUrl(origin: string, apiBase: string, mcpPath = '/mcp'): string {
   const path = mcpPath.startsWith('/') ? mcpPath : `/${mcpPath}`;
-  return `${origin}/addon-assets/oakestra-mcp/api${path}`;
+  return `${origin}${apiBase}${path}`;
 }
 
 export function loginCommand(apiUrl = API_PLACEHOLDER): string {

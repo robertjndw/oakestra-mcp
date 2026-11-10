@@ -24,6 +24,8 @@ export const infoQuery = (api: AddonApi) =>
   queryOptions({
     queryKey: addonQueryKey(ADDON_ID, 'info'),
     queryFn: ({ signal }) => getJson<ServerInfo>(api, '/info', signal),
+    // Catalog, version and settings only change when the server restarts.
+    staleTime: Infinity,
   });
 
 export const ACTIVITY_REFETCH_MS = 10_000;

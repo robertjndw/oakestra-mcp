@@ -24,14 +24,12 @@ func outcome(res Result, job placement.Resources) Outcome {
 		case pinnedMissing(job, placement.LevelCluster, res.Clusters):
 			name, _ := placement.PinnedName(job, placement.LevelCluster)
 			fmt.Fprintf(&b, "Would not deploy: cluster %q, pinned by a direct constraint, is not an active cluster (%s).", name, o.Status)
-			writeFailures(&b, res.Clusters, "clusters")
 		case o.Status == placement.StatusTargetClusterNotActive:
 			fmt.Fprintf(&b, "Would not deploy: no cluster is active (%s).", o.Status)
-			writeFailures(&b, res.Clusters, "clusters")
 		default:
 			fmt.Fprintf(&b, "Would not deploy: no cluster passes the cluster-level checks (%s).", o.Status)
-			writeFailures(&b, res.Clusters, "clusters")
 		}
+		writeFailures(&b, res.Clusters, "clusters")
 		o.Summary = b.String()
 		return o
 	}

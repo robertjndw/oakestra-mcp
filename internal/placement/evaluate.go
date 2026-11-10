@@ -392,10 +392,10 @@ func addNotEnforced(job, c Resources, level Level, add addFunc) {
 		switch con.Type {
 		case "geo":
 			add(CheckGeoArea, StatusNotEnforced, "SLA asks for placement within %s km of %s, candidate location %s%s",
-				num(con.Threshold), orUnset(con.Location), loc, notEnforced)
+				num(con.Threshold), cmp.Or(con.Location, "(unset)"), loc, notEnforced)
 		case "latency":
 			add(CheckLatency, StatusNotEnforced, "SLA asks for at most %s ms latency in area %s (rigidness %s), "+
-				"candidate location %s%s", num(con.Threshold), orUnset(con.Area), num(con.Rigidness), loc, notEnforced)
+				"candidate location %s%s", num(con.Threshold), cmp.Or(con.Area, "(unset)"), num(con.Rigidness), loc, notEnforced)
 		case "addons":
 			add(CheckAddons, StatusNotEnforced, "SLA needs addons %s%s", listOrNone(con.Needs), notEnforced)
 		case "clusters":
@@ -434,13 +434,6 @@ func listOrNone(vs []string) string {
 		return "none"
 	}
 	return strings.Join(vs, ", ")
-}
-
-func orUnset(s string) string {
-	if s == "" {
-		return "(unset)"
-	}
-	return s
 }
 
 // dedupe keeps first occurrences. Cluster documents concatenate their

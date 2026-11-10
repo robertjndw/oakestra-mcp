@@ -104,7 +104,7 @@ func dryRun(ctx context.Context, src CandidateSource, job placement.Resources, o
 		return Result{}, fmt.Errorf("reading clusters from the root resource abstractor: %w", err)
 	}
 
-	res := Result{Clusters: make([]placement.Evaluation, 0, len(roots)), NodeResults: []NodeResult{}}
+	res := Result{Clusters: make([]placement.Evaluation, 0, len(roots))}
 	for _, c := range roots {
 		r, err := decode(c)
 		if err != nil {
@@ -120,20 +120,12 @@ func dryRun(ctx context.Context, src CandidateSource, job placement.Resources, o
 		res.ClusterStatus = status
 	}
 
-	targets := map[int]bool{}
-	if win >= 0 {
-		targets[win] = true
-	}
+	var order []int
 	for i, e := range res.Clusters {
-		if (opts.AllClusters && e.Passed) || slices.Contains(extra, roots[i].ID) {
-			targets[i] = true
+		if i == win || (opts.AllClusters && e.Passed) || slices.Contains(extra, roots[i].ID) {
+			order = append(order, i)
 		}
 	}
-	order := make([]int, 0, len(targets))
-	for i := range targets {
-		order = append(order, i)
-	}
-	slices.Sort(order)
 
 	results := make([]NodeResult, len(order))
 	var wg sync.WaitGroup

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 // Constraint is one entry of a job's "constraints" list. Only "direct" is
@@ -215,4 +217,21 @@ func normaliseCsiDrivers(raw any) []string {
 		return nil
 	}
 	return result
+}
+
+// InstanceNumber decodes an instance_list entry's instance_number. Both
+// forms show up in the service document: the system manager stores an int,
+// the cluster report schema types it as a string.
+func InstanceNumber(raw json.RawMessage) (int, bool) {
+	var n int
+	if json.Unmarshal(raw, &n) == nil {
+		return n, true
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }

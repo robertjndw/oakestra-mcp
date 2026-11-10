@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
+	oakapi "github.com/oakestra/oakestra-cli/oakestra-go"
+
 	"github.com/robertjndw/oakestra-mcp/internal/actions"
-	"github.com/robertjndw/oakestra-mcp/internal/auth"
 )
 
 type prepareDeployIn struct {
@@ -95,26 +96,30 @@ func registerWriteTools(r *registry) {
 	}, r.confirmAction)
 }
 
-// writer returns the principal if it may use write actions. The refusal
-// is a DeniedError so the activity log records it as denied, not failed.
-func writer(ctx context.Context) (auth.Principal, error) {
-	p, ok := auth.FromContext(ctx)
-	if !ok {
-		return auth.Principal{}, errors.New("no authenticated user")
+// checkWriter refuses principals without a write role. The refusal is a
+// DeniedError so the activity log records it as denied, not failed.
+func (r *registry) checkWriter() error {
+	if !r.p.HasRole(actions.AllowedRoles...) {
+		return Deny(fmt.Sprintf("write actions need one of the roles %s; user %s has %s",
+			strings.Join(actions.AllowedRoles, ", "), r.p.User, orNone(r.p.Roles)))
 	}
-	if !p.HasRole(actions.AllowedRoles...) {
-		return p, Deny(fmt.Sprintf("write actions need one of the roles %s; user %s has %s",
-			strings.Join(actions.AllowedRoles, ", "), p.User, orNone(p.Roles)))
-	}
-	return p, nil
+	return nil
 }
 
-func (r *registry) prepare(ctx context.Context, do func(auth.Principal) (actions.Prepared, error)) (actions.Prepared, string, error) {
-	p, err := writer(ctx)
+// writeClient returns a client for the caller once it passed the role check.
+func (r *registry) writeClient() (*oakapi.Client, error) {
+	if err := r.checkWriter(); err != nil {
+		return nil, err
+	}
+	return r.client()
+}
+
+func (r *registry) prepare(ctx context.Context, do func(c *oakapi.Client) (actions.Prepared, error)) (actions.Prepared, string, error) {
+	c, err := r.writeClient()
 	if err != nil {
 		return actions.Prepared{}, "", err
 	}
-	out, err := do(p)
+	out, err := do(c)
 	if err != nil {
 		return actions.Prepared{}, "", err
 	}
@@ -123,67 +128,47 @@ func (r *registry) prepare(ctx context.Context, do func(auth.Principal) (actions
 }
 
 func (r *registry) prepareDeploy(ctx context.Context, in prepareDeployIn) (actions.Prepared, string, error) {
-	return r.prepare(ctx, func(p auth.Principal) (actions.Prepared, error) {
+	return r.prepare(ctx, func(c *oakapi.Client) (actions.Prepared, error) {
 		raw, err := slaJSON(in.SLA)
 		if err != nil {
 			return actions.Prepared{}, err
 		}
-		c, err := r.d.Oakestra.ClientFor(p)
-		if err != nil {
-			return actions.Prepared{}, err
-		}
-		return r.d.Actions.PrepareDeploy(ctx, p, c, raw, in.InstancesPerService)
+		return r.d.Actions.PrepareDeploy(ctx, r.p, c, raw, in.InstancesPerService)
 	})
 }
 
 func (r *registry) prepareScale(ctx context.Context, in prepareScaleIn) (actions.Prepared, string, error) {
-	return r.prepare(ctx, func(p auth.Principal) (actions.Prepared, error) {
-		c, err := r.d.Oakestra.ClientFor(p)
-		if err != nil {
-			return actions.Prepared{}, err
-		}
-		return r.d.Actions.PrepareScale(ctx, p, c, in.Service, in.Replicas)
+	return r.prepare(ctx, func(c *oakapi.Client) (actions.Prepared, error) {
+		return r.d.Actions.PrepareScale(ctx, r.p, c, in.Service, in.Replicas)
 	})
 }
 
 func (r *registry) prepareUndeploy(ctx context.Context, in prepareUndeployIn) (actions.Prepared, string, error) {
-	return r.prepare(ctx, func(p auth.Principal) (actions.Prepared, error) {
-		c, err := r.d.Oakestra.ClientFor(p)
-		if err != nil {
-			return actions.Prepared{}, err
-		}
-		return r.d.Actions.PrepareUndeploy(ctx, p, c, in.Service, in.InstanceNumber)
+	return r.prepare(ctx, func(c *oakapi.Client) (actions.Prepared, error) {
+		return r.d.Actions.PrepareUndeploy(ctx, r.p, c, in.Service, in.InstanceNumber)
 	})
 }
 
 func (r *registry) prepareDelete(ctx context.Context, in prepareDeleteIn) (actions.Prepared, string, error) {
-	return r.prepare(ctx, func(p auth.Principal) (actions.Prepared, error) {
-		c, err := r.d.Oakestra.ClientFor(p)
-		if err != nil {
-			return actions.Prepared{}, err
-		}
-		return r.d.Actions.PrepareDelete(ctx, p, c, in.Application)
+	return r.prepare(ctx, func(c *oakapi.Client) (actions.Prepared, error) {
+		return r.d.Actions.PrepareDelete(ctx, r.p, c, in.Application)
 	})
 }
 
 func (r *registry) confirmAction(ctx context.Context, in confirmIn) (actions.Result, string, error) {
-	p, err := writer(ctx)
-	if err != nil {
+	if err := r.checkWriter(); err != nil {
 		return actions.Result{}, "", err
 	}
 	if strings.TrimSpace(in.ConfirmationToken) == "" {
 		return actions.Result{}, "", errors.New("confirmation_token is required: pass the token a prepare_* call returned")
 	}
-	c, err := r.d.Oakestra.ClientFor(p)
+	c, err := r.client()
 	if err != nil {
 		return actions.Result{}, "", err
 	}
-	res, err := r.d.Actions.Confirm(ctx, p, c, in.ConfirmationToken)
+	res, err := r.d.Actions.Confirm(ctx, r.p, c, in.ConfirmationToken)
 	if res.ActionID != "" {
 		SetActionID(ctx, res.ActionID)
-	}
-	if errors.Is(err, actions.ErrWrongUser) {
-		return actions.Result{}, "", Deny(err.Error())
 	}
 	if err != nil {
 		return actions.Result{}, "", err
@@ -212,16 +197,9 @@ func preparedText(p actions.Prepared) string {
 
 func formatTTL(d time.Duration) string {
 	if d%time.Minute == 0 {
-		return plural(int(d/time.Minute), "minute")
+		return actions.Plural(int(d/time.Minute), "minute")
 	}
 	return d.String()
-}
-
-func plural(n int, what string) string {
-	if n == 1 {
-		return "1 " + what
-	}
-	return fmt.Sprintf("%d %ss", n, what)
 }
 
 func orNone(roles []string) string {

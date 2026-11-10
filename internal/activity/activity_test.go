@@ -138,7 +138,7 @@ func TestMigrationIsIdempotent(t *testing.T) {
 
 func TestRecorderFlushOnClose(t *testing.T) {
 	s := newStore(t)
-	r := NewRecorder(s, 0)
+	r := NewRecorder(s)
 	ctx := auth.WithPrincipal(context.Background(), auth.Principal{User: "alice", Organization: "org"})
 	for i := 0; i < 20; i++ {
 		r.Record(ctx, mcpserver.Call{Tool: "t", Kind: mcpserver.KindRead, Args: map[string]any{"password": "x"},
@@ -159,11 +159,11 @@ func TestRecorderFlushOnClose(t *testing.T) {
 
 func TestRecorderDropsWhenFull(t *testing.T) {
 	s := newStore(t)
-	r := &Recorder{store: s, ch: make(chan Entry, 1), done: make(chan struct{})} // no writer: queue stays full
+	r := &Recorder{store: s, ch: make(chan queued, 1), done: make(chan struct{})} // no writer: queue stays full
 	r.Record(context.Background(), mcpserver.Call{Tool: "a"})
 	r.Record(context.Background(), mcpserver.Call{Tool: "b"})
-	if r.Dropped() != 1 {
-		t.Fatal(r.Dropped())
+	if n := r.dropped.Load(); n != 1 {
+		t.Fatal(n)
 	}
 }
 

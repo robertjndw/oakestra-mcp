@@ -31,9 +31,10 @@ import {
   genericCurl,
   loginCommand,
   proxiedMcpUrl,
+  TOKEN_PLACEHOLDER,
   vscodeConfig,
 } from '../lib/snippets';
-import type { ServerInfo } from '../lib/types';
+import type { ServerInfo, ToolKind } from '../lib/types';
 import { infoQuery } from '../queries';
 import { CodeBlock } from './CodeBlock';
 
@@ -56,20 +57,19 @@ export default function ConnectPage() {
           onRetry={() => void info.refetch()}
         />
       ) : (
-        <ConnectContent info={info.data} />
+        <ConnectContent info={info.data} apiBase={api.baseUrl} />
       )}
     </div>
   );
 }
 
-function ConnectContent({ info }: { info: ServerInfo }) {
-  const dashboardUrl = proxiedMcpUrl(window.location.origin, info.mcp_path);
+function ConnectContent({ info, apiBase }: { info: ServerInfo; apiBase: string }) {
+  const dashboardUrl = proxiedMcpUrl(window.location.origin, apiBase, info.mcp_path);
   const urls = [
     ...(info.public_url ? [{ label: 'Public URL', url: info.public_url }] : []),
     { label: 'Through this dashboard', url: dashboardUrl },
   ];
-  const [primary] = urls;
-  const url = primary?.url ?? dashboardUrl;
+  const url = info.public_url || dashboardUrl;
 
   return (
     <>
@@ -124,7 +124,7 @@ function ConnectContent({ info }: { info: ServerInfo }) {
         <CardHeader>
           <CardTitle>Client configuration</CardTitle>
           <CardDescription>
-            Replace <code>{'<refresh_token>'}</code> with the token from the previous step.
+            Replace <code>{TOKEN_PLACEHOLDER}</code> with the token from the previous step.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -200,7 +200,7 @@ function ConnectContent({ info }: { info: ServerInfo }) {
   );
 }
 
-function KindBadge({ kind, writesEnabled }: { kind: 'read' | 'write'; writesEnabled: boolean }) {
+function KindBadge({ kind, writesEnabled }: { kind: ToolKind; writesEnabled: boolean }) {
   if (kind === 'read') return <Badge variant="neutral">read</Badge>;
   return <Badge variant="warning">{writesEnabled ? 'write' : 'write (disabled)'}</Badge>;
 }

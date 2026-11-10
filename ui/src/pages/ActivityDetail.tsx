@@ -13,15 +13,13 @@ import { OutcomeBadge } from './OutcomeBadge';
 
 interface ActivityDetailProps {
   item: ActivityItem | null;
-  /** Rows (including `item`) that share its action_id. */
+  /** Other rows that share the action_id of `item`. */
   related: ActivityItem[];
   onSelect: (id: number) => void;
   onClose: () => void;
 }
 
 export function ActivityDetail({ item, related, onSelect, onClose }: ActivityDetailProps) {
-  const others = related.filter((r) => r.id !== item?.id);
-
   return (
     <Sheet open={item !== null} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="mcp:w-full mcp:overflow-y-auto sm:mcp:max-w-xl">
@@ -67,11 +65,11 @@ export function ActivityDetail({ item, related, onSelect, onClose }: ActivityDet
 
               <JsonViewer title="Arguments (redacted)" data={item.args ?? {}} />
 
-              {others.length > 0 ? (
+              {related.length > 0 ? (
                 <div className="mcp:space-y-2">
                   <h3 className="mcp:text-sm mcp:font-medium">Same action</h3>
                   <ul className="mcp:space-y-1">
-                    {others.map((r) => (
+                    {related.map((r) => (
                       <li key={r.id}>
                         <Button variant="link" className="mcp:h-auto mcp:p-0" onClick={() => onSelect(r.id)}>
                           {r.tool} at {new Date(r.ts).toLocaleTimeString()} ({r.outcome})

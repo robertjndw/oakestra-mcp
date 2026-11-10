@@ -116,11 +116,11 @@ func addTool[In, Out any](r *registry, info ToolInfo, h toolFunc[In, Out]) {
 			Title:          info.Title,
 			ReadOnlyHint:   readOnly,
 			IdempotentHint: info.Kind == KindRead,
-			OpenWorldHint:  boolPtr(false),
+			OpenWorldHint:  new(false),
 		},
 	}
 	if !readOnly {
-		tool.Annotations.DestructiveHint = boolPtr(true)
+		tool.Annotations.DestructiveHint = new(true)
 	}
 	sdk.AddTool(r.server, tool, wrap(r, info, h))
 }
@@ -193,5 +193,3 @@ func clientName(req *sdk.CallToolRequest) string {
 	}
 	return ""
 }
-
-func boolPtr(b bool) *bool { return &b }

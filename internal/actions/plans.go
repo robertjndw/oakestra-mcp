@@ -2,6 +2,7 @@ package actions
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -242,10 +243,10 @@ func (e *Engine) planDeploy(ctx context.Context, p auth.Principal, c *oakapi.Cli
 	for _, a := range apps {
 		names = append(names, fmt.Sprintf("%s (namespace %s, microservices %s)", a.name, a.namespace, strings.Join(a.microservices, ", ")))
 	}
-	pl.summary = fmt.Sprintf("Create %s: %s", plural(len(apps), "application"), strings.Join(names, "; "))
+	pl.summary = fmt.Sprintf("Create %s: %s", Plural(len(apps), "application"), strings.Join(names, "; "))
 	if in.Instances > 0 {
 		pl.summary += fmt.Sprintf(". Then request %s of every microservice (%s in total).",
-			plural(in.Instances, "instance"), plural(in.Instances*len(jobs), "deploy request"))
+			Plural(in.Instances, "instance"), Plural(in.Instances*len(jobs), "deploy request"))
 	} else {
 		pl.summary += ". No instances are requested (instances_per_service is 0); use prepare_scale_service later."
 	}
@@ -386,10 +387,7 @@ type serviceState struct {
 }
 
 func (s serviceState) label() string {
-	app := s.doc.Application
-	if app == "" {
-		app = s.doc.AppName
-	}
+	app := cmp.Or(s.doc.Application, s.doc.AppName)
 	l := fmt.Sprintf("service %s (%s)", s.doc.Name, s.doc.ID)
 	if app != "" {
 		l += " of application " + app
@@ -425,30 +423,14 @@ func loadService(ctx context.Context, c *oakapi.Client, id string) (serviceState
 	}
 	st := serviceState{doc: doc, raw: raw}
 	for _, in := range doc.Instances {
-		n, ok := instanceNumber(in.Number)
+		n, ok := placement.InstanceNumber(in.Number)
 		if !ok {
 			return serviceState{}, fmt.Errorf("service %s has an instance without a usable instance_number", id)
 		}
 		st.instances = append(st.instances, instance{Number: n, Status: in.Status})
 	}
-	slices.SortFunc(st.instances, func(a, b instance) int { return a.Number - b.Number })
+	slices.SortFunc(st.instances, func(a, b instance) int { return cmp.Compare(a.Number, b.Number) })
 	return st, nil
-}
-
-// instanceNumber accepts an int or a numeric string; the system manager
-// stores an int, but cluster reports type it as a string.
-func instanceNumber(raw json.RawMessage) (int, bool) {
-	var n int
-	if json.Unmarshal(raw, &n) == nil {
-		return n, true
-	}
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
-			return n, true
-		}
-	}
-	return 0, false
 }
 
 func pendingWarning(s serviceState) []string {
@@ -463,7 +445,7 @@ func undeployStep(s serviceState, in instance) step {
 	id, n := s.doc.ID, in.Number
 	return step{
 		Step: Step{Op: opUndeployInstance, Target: fmt.Sprintf("%s#%d", id, n),
-			Detail: fmt.Sprintf("instance %d of %s, currently %s", n, s.doc.Name, orUnknown(in.Status))},
+			Detail: fmt.Sprintf("instance %d of %s, currently %s", n, s.doc.Name, cmp.Or(in.Status, "in unknown status"))},
 		run: func(ctx context.Context, c *oakapi.Client, _ *execState) (string, error) {
 			if _, err := c.Services.UndeployInstance(ctx, id, n); err != nil {
 				return "", err
@@ -485,22 +467,18 @@ func (e *Engine) PrepareScale(ctx context.Context, p auth.Principal, c *oakapi.C
 	if replicas < 0 || replicas > MaxInstances {
 		return Prepared{}, fmt.Errorf("replicas must be between 0 and %d, got %d", MaxInstances, replicas)
 	}
-	id, err := resolveService(ctx, c, service)
+	s, err := resolveService(ctx, c, service)
 	if err != nil {
 		return Prepared{}, err
 	}
-	pl, err := e.planScale(ctx, c, scaleParams{ServiceID: id, Replicas: replicas}, true)
+	pl, err := e.planScale(ctx, s, scaleParams{ServiceID: s.doc.ID, Replicas: replicas}, true)
 	if err != nil {
 		return Prepared{}, err
 	}
 	return e.save(ctx, p, pl)
 }
 
-func (e *Engine) planScale(ctx context.Context, c *oakapi.Client, in scaleParams, dry bool) (planned, error) {
-	s, err := loadService(ctx, c, in.ServiceID)
-	if err != nil {
-		return planned{}, err
-	}
+func (e *Engine) planScale(ctx context.Context, s serviceState, in scaleParams, dry bool) (planned, error) {
 	cur := len(s.instances)
 	pl := planned{
 		kind: KindScaleService, params: in,
@@ -524,7 +502,7 @@ func (e *Engine) planScale(ctx context.Context, c *oakapi.Client, in scaleParams
 			})
 		}
 		pl.summary = fmt.Sprintf("Scale %s from %d to %d instances: request %s.",
-			s.label(), cur, in.Replicas, plural(k, "new instance"))
+			s.label(), cur, in.Replicas, Plural(k, "new instance"))
 		if dry {
 			e.addServiceDryRun(ctx, &pl, s, k)
 		}
@@ -533,15 +511,15 @@ func (e *Engine) planScale(ctx context.Context, c *oakapi.Client, in scaleParams
 		// removing them keeps the long-running ones in place.
 		gone := slices.Clone(s.instances[in.Replicas:])
 		slices.Reverse(gone)
-		var nums []string
+		nums := make([]int, 0, len(gone))
 		for _, inst := range gone {
 			pl.steps = append(pl.steps, undeployStep(s, inst))
-			nums = append(nums, "#"+strconv.Itoa(inst.Number))
+			nums = append(nums, inst.Number)
 		}
 		pl.summary = fmt.Sprintf("Scale %s from %d to %d instances: undeploy instances %s (highest numbers first).",
-			s.label(), cur, in.Replicas, strings.Join(nums, ", "))
+			s.label(), cur, in.Replicas, numberList(nums))
 	default:
-		pl.summary = fmt.Sprintf("%s already has %s.", s.label(), plural(cur, "instance"))
+		pl.summary = fmt.Sprintf("%s already has %s.", s.label(), Plural(cur, "instance"))
 	}
 	return pl, nil
 }
@@ -572,22 +550,18 @@ func (e *Engine) PrepareUndeploy(ctx context.Context, p auth.Principal, c *oakap
 	if instanceNumber != nil && *instanceNumber < 0 {
 		return Prepared{}, fmt.Errorf("instance_number must be 0 or greater, got %d", *instanceNumber)
 	}
-	id, err := resolveService(ctx, c, service)
+	s, err := resolveService(ctx, c, service)
 	if err != nil {
 		return Prepared{}, err
 	}
-	pl, err := e.planUndeploy(ctx, c, undeployParams{ServiceID: id, InstanceNumber: instanceNumber})
+	pl, err := e.planUndeploy(s, undeployParams{ServiceID: s.doc.ID, InstanceNumber: instanceNumber})
 	if err != nil {
 		return Prepared{}, err
 	}
 	return e.save(ctx, p, pl)
 }
 
-func (e *Engine) planUndeploy(ctx context.Context, c *oakapi.Client, in undeployParams) (planned, error) {
-	s, err := loadService(ctx, c, in.ServiceID)
-	if err != nil {
-		return planned{}, err
-	}
+func (e *Engine) planUndeploy(s serviceState, in undeployParams) (planned, error) {
 	pl := planned{kind: KindUndeployService, params: in, state: map[string]any{"instances": s.numbers()},
 		warnings: pendingWarning(s)}
 	if in.InstanceNumber != nil {
@@ -600,7 +574,7 @@ func (e *Engine) planUndeploy(ctx context.Context, c *oakapi.Client, in undeploy
 		}
 		pl.steps = []step{undeployStep(s, s.instances[i])}
 		pl.summary = fmt.Sprintf("Undeploy instance #%d of %s, leaving %s. The service stays registered.",
-			*in.InstanceNumber, s.label(), plural(len(s.instances)-1, "instance"))
+			*in.InstanceNumber, s.label(), Plural(len(s.instances)-1, "instance"))
 		return pl, nil
 	}
 	for i := len(s.instances) - 1; i >= 0; i-- {
@@ -610,7 +584,7 @@ func (e *Engine) planUndeploy(ctx context.Context, c *oakapi.Client, in undeploy
 		pl.summary = s.label() + " has no instances to undeploy."
 	} else {
 		pl.summary = fmt.Sprintf("Undeploy all %s of %s (%s). The service stays registered with 0 instances; "+
-			"use prepare_delete_application to remove it entirely.", plural(len(s.instances), "instance"), s.label(), numberList(s.numbers()))
+			"use prepare_delete_application to remove it entirely.", Plural(len(s.instances), "instance"), s.label(), numberList(s.numbers()))
 	}
 	return pl, nil
 }
@@ -631,17 +605,21 @@ func (e *Engine) PrepareDelete(ctx context.Context, p auth.Principal, c *oakapi.
 	if err != nil {
 		return Prepared{}, err
 	}
-	pl, err := e.planDelete(ctx, c, deleteParams{ApplicationID: app.ApplicationID})
+	pl, err := e.planDelete(ctx, c, deleteParams{ApplicationID: app.ApplicationID}, app)
 	if err != nil {
 		return Prepared{}, err
 	}
 	return e.save(ctx, p, pl)
 }
 
-func (e *Engine) planDelete(ctx context.Context, c *oakapi.Client, in deleteParams) (planned, error) {
-	app, _, err := c.Applications.Get(ctx, in.ApplicationID)
-	if err != nil {
-		return planned{}, err
+// planDelete plans with app when the caller already holds a fresh copy of
+// it, and fetches the application otherwise.
+func (e *Engine) planDelete(ctx context.Context, c *oakapi.Client, in deleteParams, app *oakapi.Application) (planned, error) {
+	if app == nil {
+		var err error
+		if app, _, err = c.Applications.Get(ctx, in.ApplicationID); err != nil {
+			return planned{}, err
+		}
 	}
 	svcs, _, err := c.Services.List(ctx, &oakapi.ServiceListOptions{ApplicationID: in.ApplicationID})
 	if err != nil {
@@ -684,7 +662,7 @@ func (e *Engine) planDelete(ctx context.Context, c *oakapi.Client, in deletePara
 			},
 		}},
 		summary: fmt.Sprintf("Delete application %s together with its %s and their %s. This cannot be undone.",
-			label, plural(len(svcs), "service"), plural(total, "instance")),
+			label, Plural(len(svcs), "service"), Plural(total, "instance")),
 	}
 	if len(gone) > 0 {
 		pl.summary += " Going away: " + strings.Join(gone, "; ") + "."
@@ -694,22 +672,27 @@ func (e *Engine) planDelete(ctx context.Context, c *oakapi.Client, in deletePara
 
 // ---- helpers ----
 
-func resolveService(ctx context.Context, c *oakapi.Client, ref string) (string, error) {
+// resolveService loads a service by ID, falling back to a name lookup.
+func resolveService(ctx context.Context, c *oakapi.Client, ref string) (serviceState, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
-		return "", errors.New("service is required: pass a service ID or name (see list_services)")
+		return serviceState{}, errors.New("service is required: pass a service ID or name (see list_services)")
 	}
-	// Resolving with the caller's client limits non-admins to their own
-	// services, and storing the ID keeps a later rename or a new service
-	// with the same name from changing what confirm acts on.
-	s, _, err := c.Services.ResolveByNameOrID(ctx, ref)
+	// Same order as ResolveByNameOrID, but the raw document is only fetched
+	// once. The caller's client keeps non-admins to their own services.
+	// Plans store the resolved ID so a rename can't retarget confirm.
+	if s, err := loadService(ctx, c, ref); err == nil {
+		return s, nil
+	}
+	svc, _, err := c.Services.ResolveByNameOrID(ctx, ref)
 	if err != nil {
-		return "", err
+		return serviceState{}, err
 	}
-	return s.MicroserviceID, nil
+	return loadService(ctx, c, svc.MicroserviceID)
 }
 
-func plural(n int, what string) string {
+// Plural formats a count with a noun, e.g. "1 instance" or "3 instances".
+func Plural(n int, what string) string {
 	if n == 1 {
 		return "1 " + what
 	}
@@ -725,11 +708,4 @@ func numberList(ns []int) string {
 		parts = append(parts, "#"+strconv.Itoa(n))
 	}
 	return strings.Join(parts, ", ")
-}
-
-func orUnknown(s string) string {
-	if s == "" {
-		return "in unknown status"
-	}
-	return s
 }

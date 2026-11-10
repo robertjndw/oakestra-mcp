@@ -11,14 +11,14 @@ import (
 	"github.com/robertjndw/oakestra-mcp/internal/mcpserver"
 )
 
-const defaultBuffer = 1024
+const queueSize = 1024
 
 // Recorder implements mcpserver.Recorder. Writes go through a bounded queue
 // to one goroutine so a slow disk never delays a tool call; when the queue is
 // full the entry is dropped and counted instead.
 type Recorder struct {
 	store   *Store
-	ch      chan Entry
+	ch      chan queued
 	done    chan struct{}
 	dropped atomic.Int64
 
@@ -28,17 +28,21 @@ type Recorder struct {
 
 var _ mcpserver.Recorder = (*Recorder)(nil)
 
-// NewRecorder starts the writer goroutine. buffer <= 0 uses a default.
-func NewRecorder(s *Store, buffer int) *Recorder {
-	if buffer <= 0 {
-		buffer = defaultBuffer
-	}
-	r := &Recorder{store: s, ch: make(chan Entry, buffer), done: make(chan struct{})}
+// queued holds unredacted args. Redaction happens in the writer goroutine
+// to keep it off the tool call path; tool inputs aren't mutated afterwards.
+type queued struct {
+	entry Entry
+	args  any
+}
+
+// NewRecorder starts the writer goroutine.
+func NewRecorder(s *Store) *Recorder {
+	r := &Recorder{store: s, ch: make(chan queued, queueSize), done: make(chan struct{})}
 	go r.loop()
 	return r
 }
 
-// Record redacts and queues the call. It never blocks.
+// Record queues the call. It never blocks.
 func (r *Recorder) Record(ctx context.Context, c mcpserver.Call) {
 	p, _ := auth.FromContext(ctx)
 	e := Entry{
@@ -48,7 +52,6 @@ func (r *Recorder) Record(ctx context.Context, c mcpserver.Call) {
 		ClientName:   c.ClientName,
 		Tool:         c.Tool,
 		Kind:         string(c.Kind),
-		ArgsJSON:     RedactArgs(c.Args),
 		Outcome:      string(c.Outcome),
 		Error:        c.Err,
 		DurationMS:   c.Duration.Milliseconds(),
@@ -60,19 +63,18 @@ func (r *Recorder) Record(ctx context.Context, c mcpserver.Call) {
 		return
 	}
 	select {
-	case r.ch <- e:
+	case r.ch <- queued{entry: e, args: c.Args}:
 	default:
 		n := r.dropped.Add(1)
 		slog.Warn("activity buffer full, dropping record", "tool", c.Tool, "dropped_total", n)
 	}
 }
 
-// Dropped reports how many records were discarded because the buffer was full.
-func (r *Recorder) Dropped() int64 { return r.dropped.Load() }
-
 func (r *Recorder) loop() {
 	defer close(r.done)
-	for e := range r.ch {
+	for q := range r.ch {
+		e := q.entry
+		e.ArgsJSON = RedactArgs(q.args)
 		// A fresh context: the write must outlive whichever request produced it.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if _, err := r.store.Insert(ctx, e); err != nil {

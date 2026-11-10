@@ -5,7 +5,6 @@
 package mcpserver
 
 import (
-	"context"
 	"net/http"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/robertjndw/oakestra-mcp/internal/actions"
 	"github.com/robertjndw/oakestra-mcp/internal/auth"
-	"github.com/robertjndw/oakestra-mcp/internal/candidates"
 	"github.com/robertjndw/oakestra-mcp/internal/explain"
 )
 
@@ -23,19 +21,12 @@ type OakestraClients interface {
 	ClientFor(p auth.Principal) (*oakapi.Client, error)
 }
 
-// CandidateSource reads scheduling candidates. *candidates.Client
-// implements it.
-type CandidateSource interface {
-	Root(ctx context.Context) ([]candidates.Candidate, error)
-	Workers(ctx context.Context, cluster candidates.Candidate) ([]candidates.Candidate, error)
-}
-
 // Deps are the services behind the tools. A nil field means the tools that
 // need it are not offered, which lets later phases add their dependencies
 // without touching the wiring of earlier ones.
 type Deps struct {
 	Oakestra   OakestraClients
-	Candidates CandidateSource
+	Candidates explain.CandidateSource
 	// Placement enables dry_run_placement, and explain_placement together
 	// with Oakestra. *candidates.Client implements it.
 	Placement explain.CandidateSource
@@ -70,14 +61,22 @@ func (d Deps) version() string {
 	return d.Version
 }
 
+// hasWriteTools reports whether the write tools are registered. Whether
+// they are also served is up to EnableWrites.
+func (d Deps) hasWriteTools() bool { return d.Actions != nil && d.Oakestra != nil }
+
 // NewServer builds the MCP server for one principal.
 func NewServer(d Deps, p auth.Principal) *sdk.Server {
+	return newServer(d, p, nil)
+}
+
+func newServer(d Deps, p auth.Principal, schemas *sdk.SchemaCache) *sdk.Server {
 	instr := instructions
-	if d.EnableWrites && d.Actions != nil {
+	if d.EnableWrites && d.hasWriteTools() {
 		instr += writeInstructions
 	}
 	s := sdk.NewServer(&sdk.Implementation{Name: "oakestra-mcp", Title: "Oakestra", Version: d.version()},
-		&sdk.ServerOptions{Instructions: instr})
+		&sdk.ServerOptions{Instructions: instr, SchemaCache: schemas})
 	register(&registry{d: d, p: p, server: s})
 	return s
 }
@@ -93,12 +92,15 @@ func Catalog(d Deps) []ToolInfo {
 // Handler serves MCP at the mount point. It must sit behind the auth
 // middleware; without a principal on the context the SDK answers 400.
 func Handler(d Deps) http.Handler {
+	// A server is built per request, so without a shared cache every request
+	// would reflect and resolve the input and output schema of every tool.
+	schemas := sdk.NewSchemaCache()
 	return sdk.NewStreamableHTTPHandler(func(r *http.Request) *sdk.Server {
 		p, ok := auth.FromContext(r.Context())
 		if !ok {
 			return nil
 		}
-		return NewServer(d, p)
+		return newServer(d, p, schemas)
 	}, &sdk.StreamableHTTPOptions{
 		// Stateless JSON keeps every call a plain request/response, which
 		// survives the dashboard's reverse proxy (60s timeout, no sticky
@@ -120,7 +122,7 @@ func register(r *registry) {
 	if r.d.Placement != nil {
 		registerPlacementTools(r)
 	}
-	if r.d.Actions != nil && r.d.Oakestra != nil {
+	if r.d.hasWriteTools() {
 		registerWriteTools(r)
 	}
 }

@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { ActivityFilters } from '../lib/activity-query';
 import type { ActivityItem, Outcome } from '../lib/types';
-import { activityQuery, infoQuery } from '../queries';
+import { ACTIVITY_REFETCH_MS, activityQuery, infoQuery } from '../queries';
 import { ActivityDetail } from './ActivityDetail';
 import { OutcomeBadge } from './OutcomeBadge';
 
@@ -31,6 +31,7 @@ const ALL = 'all';
 // Typing in the user filter would otherwise start one request per keystroke.
 const USER_FILTER_DEBOUNCE_MS = 300;
 const OUTCOMES: Outcome[] = ['ok', 'error', 'denied'];
+const refreshNote = `Refreshes every ${ACTIVITY_REFETCH_MS / 1000} seconds.`;
 
 export default function ActivityPage() {
   const api = useAddonApi();
@@ -63,8 +64,8 @@ export default function ActivityPage() {
         title="Agent activity"
         description={
           isAdmin
-            ? 'Every tool call agents made through the MCP server. Refreshes every 10 seconds.'
-            : 'The tool calls made with your account. Refreshes every 10 seconds.'
+            ? `Every tool call agents made through the MCP server. ${refreshNote}`
+            : `The tool calls made with your account. ${refreshNote}`
         }
       />
 
@@ -159,7 +160,11 @@ export default function ActivityPage() {
 
       <ActivityDetail
         item={selected}
-        related={selected?.action_id ? items.filter((i) => i.action_id === selected.action_id) : []}
+        related={
+          selected?.action_id
+            ? items.filter((i) => i.action_id === selected.action_id && i.id !== selected.id)
+            : []
+        }
         onSelect={setSelectedId}
         onClose={() => setSelectedId(null)}
       />

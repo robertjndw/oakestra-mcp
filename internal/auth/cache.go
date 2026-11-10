@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"maps"
 	"sync"
 	"time"
 )
@@ -57,11 +58,7 @@ func (c *ttlCache[V]) put(key string, val V, exp time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, exists := c.data[key]; !exists && len(c.data) >= c.max {
-		for k, e := range c.data {
-			if !now.Before(e.exp) {
-				delete(c.data, k)
-			}
-		}
+		maps.DeleteFunc(c.data, func(_ string, e cacheEntry[V]) bool { return !now.Before(e.exp) })
 		// Still full of live entries: evict arbitrary ones. Losing a cache
 		// entry only costs one extra round trip to the system manager.
 		for k := range c.data {

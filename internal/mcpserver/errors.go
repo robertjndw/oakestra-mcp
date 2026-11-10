@@ -9,7 +9,9 @@ import (
 
 	oakapi "github.com/oakestra/oakestra-cli/oakestra-go"
 
+	"github.com/robertjndw/oakestra-mcp/internal/actions"
 	"github.com/robertjndw/oakestra-mcp/internal/candidates"
+	"github.com/robertjndw/oakestra-mcp/internal/oakestra"
 )
 
 // toolError rewrites errors into messages that tell an agent what went
@@ -27,6 +29,8 @@ func toolError(err error) error {
 	switch {
 	case errors.As(err, &denied):
 		return err
+	case errors.Is(err, actions.ErrWrongUser):
+		return Deny(err.Error())
 	case errors.As(err, &notFound):
 		return fmt.Errorf("no %s found with ID or name %q. Call list_%ss to see the ones you can access.",
 			notFound.Kind, notFound.Query, notFound.Kind)
@@ -49,18 +53,11 @@ func toolError(err error) error {
 	case errors.As(err, &connErr):
 		return fmt.Errorf("the Oakestra system manager is not reachable right now (%v). Retry later; this is not a problem with the request.", connErr.Err)
 	case errors.As(err, &respErr):
-		return fmt.Errorf("Oakestra returned HTTP %d: %s", respErr.StatusCode, truncate(strings.TrimSpace(respErr.Body), 300))
+		return errors.New(oakestra.DescribeResponse(respErr))
 	case errors.Is(err, candidates.ErrUnavailable):
 		return fmt.Errorf("resource data is unavailable: %v. Retry later; application and service tools may still work.", err)
 	case errors.Is(err, context.DeadlineExceeded):
 		return errors.New("the request to Oakestra timed out. Retry later.")
 	}
 	return err
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
 }

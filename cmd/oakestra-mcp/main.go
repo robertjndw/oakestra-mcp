@@ -70,7 +70,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	engine := actions.NewEngine(actStore, secret, cfg.ConfirmTTL, cands)
-	recorder := activity.NewRecorder(actStore, 0)
+	recorder := activity.NewRecorder(actStore)
 	// Deferred after the store so it runs first and flushes queued records
 	// before the database closes.
 	defer recorder.Close()

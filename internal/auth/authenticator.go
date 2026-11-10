@@ -6,6 +6,7 @@
 package auth
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -160,10 +161,7 @@ func (a *Authenticator) verify(ctx context.Context, access string, c Claims) (Pr
 	}
 
 	// The route compares the URL username with the JWT identity ("sub").
-	name := c.Subject
-	if name == "" {
-		name = c.User
-	}
+	name := cmp.Or(c.Subject, c.User)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.baseURL+"/api/user/"+url.PathEscape(name), nil)
 	if err != nil {
 		return Principal{}, err

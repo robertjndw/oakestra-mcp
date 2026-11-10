@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -8,7 +9,6 @@ import (
 
 	oakapi "github.com/oakestra/oakestra-cli/oakestra-go"
 
-	"github.com/robertjndw/oakestra-mcp/internal/auth"
 	"github.com/robertjndw/oakestra-mcp/internal/oakestra"
 )
 
@@ -154,20 +154,16 @@ func registerAppTools(r *registry) {
 	}, r.getService)
 }
 
-func (r *registry) client(ctx context.Context) (*oakapi.Client, error) {
-	p, ok := auth.FromContext(ctx)
-	if !ok {
-		return nil, errors.New("no authenticated user")
-	}
-	return r.d.Oakestra.ClientFor(p)
+func (r *registry) client() (*oakapi.Client, error) {
+	return r.d.Oakestra.ClientFor(r.p)
 }
 
 func (r *registry) listApplications(ctx context.Context, _ listApplicationsIn) (listApplicationsOut, string, error) {
-	c, err := r.client(ctx)
+	c, err := r.client()
 	if err != nil {
 		return listApplicationsOut{}, "", err
 	}
-	apps, err := oakestra.ListApplications(ctx, c, r.principal(ctx))
+	apps, err := oakestra.ListApplications(ctx, c, r.p)
 	if err != nil {
 		return listApplicationsOut{}, "", err
 	}
@@ -184,11 +180,11 @@ func (r *registry) getApplication(ctx context.Context, in getApplicationIn) (get
 	if strings.TrimSpace(in.IDOrName) == "" {
 		return getApplicationOut{}, "", errors.New("id_or_name is required")
 	}
-	c, err := r.client(ctx)
+	c, err := r.client()
 	if err != nil {
 		return getApplicationOut{}, "", err
 	}
-	app, err := oakestra.ResolveApplication(ctx, c, r.principal(ctx), in.IDOrName)
+	app, err := oakestra.ResolveApplication(ctx, c, r.p, in.IDOrName)
 	if err != nil {
 		return getApplicationOut{}, "", err
 	}
@@ -201,7 +197,7 @@ func (r *registry) getApplication(ctx context.Context, in getApplicationIn) (get
 	for _, s := range svcs {
 		sum := summaryFrom(s)
 		out.Services = append(out.Services, sum)
-		parts = append(parts, fmt.Sprintf("%s [%s, %d/%d running]", sum.Name, orDash(sum.Status), sum.Running, sum.Instances))
+		parts = append(parts, fmt.Sprintf("%s [%s, %d/%d running]", sum.Name, cmp.Or(sum.Status, "-"), sum.Running, sum.Instances))
 	}
 	summary := fmt.Sprintf("Application %s (%s), namespace %s, %d services: %s",
 		app.ApplicationName, app.ApplicationID, app.ApplicationNamespace, len(out.Services), joinCapped(parts, 30))
@@ -212,14 +208,14 @@ func (r *registry) getApplication(ctx context.Context, in getApplicationIn) (get
 }
 
 func (r *registry) listServices(ctx context.Context, in listServicesIn) (listServicesOut, string, error) {
-	c, err := r.client(ctx)
+	c, err := r.client()
 	if err != nil {
 		return listServicesOut{}, "", err
 	}
 	var opts *oakapi.ServiceListOptions
 	scope := ""
 	if ref := strings.TrimSpace(in.Application); ref != "" {
-		app, err := oakestra.ResolveApplication(ctx, c, r.principal(ctx), ref)
+		app, err := oakestra.ResolveApplication(ctx, c, r.p, ref)
 		if err != nil {
 			return listServicesOut{}, "", err
 		}
@@ -235,7 +231,7 @@ func (r *registry) listServices(ctx context.Context, in listServicesIn) (listSer
 	for _, s := range svcs {
 		sum := summaryFrom(s)
 		out.Services = append(out.Services, sum)
-		parts = append(parts, fmt.Sprintf("%s (%s) [%s, %d/%d running]", sum.Name, sum.ID, orDash(sum.Status), sum.Running, sum.Instances))
+		parts = append(parts, fmt.Sprintf("%s (%s) [%s, %d/%d running]", sum.Name, sum.ID, cmp.Or(sum.Status, "-"), sum.Running, sum.Instances))
 	}
 	return out, fmt.Sprintf("%d services%s: %s", len(svcs), scope, joinCapped(parts, 30)), nil
 }
@@ -244,7 +240,7 @@ func (r *registry) getService(ctx context.Context, in getServiceIn) (ServiceDeta
 	if strings.TrimSpace(in.IDOrName) == "" {
 		return ServiceDetail{}, "", errors.New("id_or_name is required")
 	}
-	c, err := r.client(ctx)
+	c, err := r.client()
 	if err != nil {
 		return ServiceDetail{}, "", err
 	}
@@ -276,14 +272,11 @@ func (r *registry) getService(ctx context.Context, in getServiceIn) (ServiceDeta
 			CPUPercent: i.CPUPercent, MemoryPercent: i.MemoryPercent,
 		}
 		d.InstanceList = append(d.InstanceList, inst)
-		where := inst.ClusterName
-		if where == "" {
-			where = inst.ClusterID
-		}
+		where := cmp.Or(inst.ClusterName, inst.ClusterID)
 		if inst.WorkerID != "" {
 			where += "/" + inst.WorkerID
 		}
-		desc := fmt.Sprintf("#%d %s", inst.Number, orDash(inst.Status))
+		desc := fmt.Sprintf("#%d %s", inst.Number, cmp.Or(inst.Status, "-"))
 		if where != "" {
 			desc += " on " + where
 		}
@@ -293,7 +286,7 @@ func (r *registry) getService(ctx context.Context, in getServiceIn) (ServiceDeta
 		parts = append(parts, desc)
 	}
 	summary := fmt.Sprintf("Service %s (%s) of application %s: status %s, %d instances (%d running): %s",
-		d.Name, d.ID, d.ApplicationName, orDash(d.Status), d.Instances, d.Running, joinCapped(parts, 30))
+		d.Name, d.ID, d.ApplicationName, cmp.Or(d.Status, "-"), d.Instances, d.Running, joinCapped(parts, 30))
 	return d, summary, nil
 }
 
@@ -313,18 +306,4 @@ func (r *registry) clusterNames(ctx context.Context) map[string]string {
 		names[c.ID] = c.Name
 	}
 	return names
-}
-
-func orDash(s string) string {
-	if s == "" {
-		return "-"
-	}
-	return s
-}
-
-// principal returns the caller; client() has already rejected contexts
-// without one, so the zero value only shows up in misuse.
-func (r *registry) principal(ctx context.Context) auth.Principal {
-	p, _ := auth.FromContext(ctx)
-	return p
 }

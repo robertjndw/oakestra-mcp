@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	oakapi "github.com/oakestra/oakestra-cli/oakestra-go"
@@ -79,4 +80,15 @@ func GetRaw(ctx context.Context, c *oakapi.Client, path string) (json.RawMessage
 // GetServiceRaw returns the system manager's job document for a service.
 func GetServiceRaw(ctx context.Context, c *oakapi.Client, serviceID string) (json.RawMessage, error) {
 	return GetRaw(ctx, c, "api/service/"+url.PathEscape(serviceID))
+}
+
+// DescribeResponse renders an error answer from the system manager for an
+// agent: the status and a capped body, without the URL oakestra-go puts into
+// its own message.
+func DescribeResponse(e *oakapi.ErrorResponse) string {
+	body := strings.TrimSpace(e.Body)
+	if len(body) > 300 {
+		body = body[:300] + "..."
+	}
+	return fmt.Sprintf("Oakestra returned HTTP %d: %s", e.StatusCode, body)
 }

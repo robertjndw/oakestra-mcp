@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"cmp"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -31,10 +32,7 @@ type Claims struct {
 // Flask-JWT-Extended identity; they are equal for tokens from /api/auth/login
 // but either may be missing in hand-made tokens.
 func (c Claims) Identity() string {
-	if c.User != "" {
-		return c.User
-	}
-	return c.Subject
+	return cmp.Or(c.User, c.Subject)
 }
 
 // IsRefresh reports whether the token is a refresh token.

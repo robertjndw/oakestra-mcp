@@ -74,19 +74,21 @@ func (r *registry) explainPlacement(ctx context.Context, in explainPlacementIn) 
 	if ref == "" {
 		return explain.Explanation{}, "", errors.New("service is required: pass a service ID or name (see list_services)")
 	}
-	c, err := r.client(ctx)
+	c, err := r.client()
 	if err != nil {
 		return explain.Explanation{}, "", err
 	}
-	// Resolving with the caller's client is what enforces ownership: a
-	// non-admin only finds their own services.
-	s, _, err := c.Services.ResolveByNameOrID(ctx, ref)
+	// The caller's client enforces ownership, so non-admins only find their
+	// own services. ID first, like ResolveByNameOrID, to fetch the doc once.
+	raw, err := oakestra.GetServiceRaw(ctx, c, ref)
 	if err != nil {
-		return explain.Explanation{}, "", err
-	}
-	raw, err := oakestra.GetServiceRaw(ctx, c, s.MicroserviceID)
-	if err != nil {
-		return explain.Explanation{}, "", err
+		s, _, rerr := c.Services.ResolveByNameOrID(ctx, ref)
+		if rerr != nil {
+			return explain.Explanation{}, "", rerr
+		}
+		if raw, err = oakestra.GetServiceRaw(ctx, c, s.MicroserviceID); err != nil {
+			return explain.Explanation{}, "", err
+		}
 	}
 	ex, err := explain.Explain(ctx, explain.Memoize(r.d.Placement), raw, explain.Options{AllClusters: in.AllClusters})
 	if err != nil {

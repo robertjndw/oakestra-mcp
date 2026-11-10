@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 
 	"github.com/robertjndw/oakestra-mcp/internal/auth"
 	"github.com/robertjndw/oakestra-mcp/internal/explain"
+	"github.com/robertjndw/oakestra-mcp/internal/oakestra"
 )
 
 // Kind names what an action does.
@@ -305,34 +307,37 @@ func (e *Engine) Confirm(ctx context.Context, p auth.Principal, c *oakapi.Client
 }
 
 func (e *Engine) replan(ctx context.Context, p auth.Principal, c *oakapi.Client, a Pending) (planned, error) {
-	params := []byte(a.ParamsJSON)
 	switch a.Kind {
 	case KindDeployApplication:
-		var in deployParams
-		if err := json.Unmarshal(params, &in); err != nil {
-			return planned{}, err
-		}
-		return e.planDeploy(ctx, p, c, in, false)
+		return replanWith(a, func(in deployParams) (planned, error) { return e.planDeploy(ctx, p, c, in, false) })
 	case KindScaleService:
-		var in scaleParams
-		if err := json.Unmarshal(params, &in); err != nil {
-			return planned{}, err
-		}
-		return e.planScale(ctx, c, in, false)
+		return replanWith(a, func(in scaleParams) (planned, error) {
+			s, err := loadService(ctx, c, in.ServiceID)
+			if err != nil {
+				return planned{}, err
+			}
+			return e.planScale(ctx, s, in, false)
+		})
 	case KindUndeployService:
-		var in undeployParams
-		if err := json.Unmarshal(params, &in); err != nil {
-			return planned{}, err
-		}
-		return e.planUndeploy(ctx, c, in)
+		return replanWith(a, func(in undeployParams) (planned, error) {
+			s, err := loadService(ctx, c, in.ServiceID)
+			if err != nil {
+				return planned{}, err
+			}
+			return e.planUndeploy(s, in)
+		})
 	case KindDeleteApplication:
-		var in deleteParams
-		if err := json.Unmarshal(params, &in); err != nil {
-			return planned{}, err
-		}
-		return e.planDelete(ctx, c, in)
+		return replanWith(a, func(in deleteParams) (planned, error) { return e.planDelete(ctx, c, in, nil) })
 	}
 	return planned{}, fmt.Errorf("unknown action kind %q", a.Kind)
+}
+
+func replanWith[T any](a Pending, plan func(T) (planned, error)) (planned, error) {
+	var in T
+	if err := json.Unmarshal([]byte(a.ParamsJSON), &in); err != nil {
+		return planned{}, err
+	}
+	return plan(in)
 }
 
 // execute runs the steps in order and stops at the first error. The
@@ -380,7 +385,7 @@ func resultMessage(r Result) string {
 	}
 	if failedAt == 0 {
 		msg := fmt.Sprintf("Action %s done: all %d steps succeeded.", r.ActionID, done)
-		if r.Kind == KindDeployApplication || r.Kind == KindScaleService {
+		if slices.ContainsFunc(r.Steps, func(s StepResult) bool { return s.Op == opDeployInstance }) {
 			msg += " Oakestra schedules new instances asynchronously; follow them with get_service or explain_placement."
 		}
 		return msg
@@ -413,11 +418,7 @@ func describeErr(err error) string {
 	)
 	switch {
 	case errors.As(err, &respErr):
-		body := strings.TrimSpace(respErr.Body)
-		if len(body) > 300 {
-			body = body[:300] + "..."
-		}
-		return fmt.Sprintf("Oakestra returned HTTP %d: %s", respErr.StatusCode, body)
+		return oakestra.DescribeResponse(respErr)
 	case errors.As(err, &authErr):
 		return fmt.Sprintf("Oakestra refused the request (HTTP %d)", authErr.StatusCode)
 	case errors.As(err, &connErr):

@@ -13,10 +13,11 @@ const URL = 'http://root.example:8090/mcp';
 
 describe('snippets', () => {
   it('builds the dashboard-proxied URL', () => {
-    expect(proxiedMcpUrl('https://dash.example')).toBe(
+    const base = '/addon-assets/oakestra-mcp/api';
+    expect(proxiedMcpUrl('https://dash.example', base)).toBe(
       'https://dash.example/addon-assets/oakestra-mcp/api/mcp',
     );
-    expect(proxiedMcpUrl('https://dash.example', 'mcp')).toBe(
+    expect(proxiedMcpUrl('https://dash.example', base, 'mcp')).toBe(
       'https://dash.example/addon-assets/oakestra-mcp/api/mcp',
     );
   });

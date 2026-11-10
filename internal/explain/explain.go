@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/robertjndw/oakestra-mcp/internal/candidates"
@@ -128,8 +127,12 @@ func Explain(ctx context.Context, src CandidateSource, serviceRaw json.RawMessag
 }
 
 func annotate(in storedInstance, res Result) InstancePlacement {
+	n, ok := placement.InstanceNumber(in.Number)
+	if !ok {
+		n = -1
+	}
 	ip := InstancePlacement{
-		Number: instanceNumber(in.Number), Status: in.Status, StatusDetail: in.StatusDetail, HostIP: in.HostIP,
+		Number: n, Status: in.Status, StatusDetail: in.StatusDetail, HostIP: in.HostIP,
 	}
 	if in.WorkerID != "" {
 		ip.Worker = &Ref{ID: in.WorkerID}
@@ -147,7 +150,7 @@ func annotate(in storedInstance, res Result) InstancePlacement {
 	}
 	ce := res.Clusters[idx]
 	ip.Cluster.Name = ce.CandidateName
-	ip.ClusterPasses = boolPtr(ce.Passed)
+	ip.ClusterPasses = new(ce.Passed)
 	ip.ClusterStillChosen = res.ChosenCluster != nil && res.ChosenCluster.ID == in.ClusterID
 
 	nr, ok := res.NodeResultFor(in.ClusterID)
@@ -182,25 +185,9 @@ func annotate(in storedInstance, res Result) InstancePlacement {
 	}
 	ne := nr.Nodes[w]
 	ip.Worker = &Ref{ID: nr.workers[w].ID, Name: cmp.Or(ne.CandidateName, nr.workers[w].Name)}
-	ip.NodePasses = boolPtr(ne.Passed)
-	ip.NodeStillChosen = boolPtr(nr.ChosenNode != nil && nr.ChosenNode.ID == ip.Worker.ID)
+	ip.NodePasses = new(ne.Passed)
+	ip.NodeStillChosen = new(nr.ChosenNode != nil && nr.ChosenNode.ID == ip.Worker.ID)
 	return ip
-}
-
-// instanceNumber accepts both forms seen in the wild: the system manager
-// stores an int, the cluster report schema types it as a string.
-func instanceNumber(raw json.RawMessage) int {
-	var n int
-	if json.Unmarshal(raw, &n) == nil {
-		return n
-	}
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
-			return n
-		}
-	}
-	return -1
 }
 
 func explanationSummary(ex Explanation) string {
@@ -257,5 +244,3 @@ func verdict(in InstancePlacement) string {
 	}
 	return ""
 }
-
-func boolPtr(b bool) *bool { return &b }
