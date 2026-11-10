@@ -1,0 +1,14 @@
+/*
+ * Addons generate utilities only. The shell already loaded Tailwind's reset and the token values;
+ * a second preflight here would reset the shell's styles after the addon loads.
+ *
+ * `prefix(mcp)` makes every class of this addon `mcp:<utility>` (`mcp:flex`,
+ * `mcp:md:hidden`). This stylesheet loads after the shell's, so an unprefixed utility
+ * generated here could beat the shell's own classes. Tailwind also picks up class-like words in
+ * comments, so that happens easily. The prefix must equal `prefix` in vite.config.ts.
+ */
+@import 'tailwindcss/theme.css' layer(theme) prefix(mcp);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@import '@oakestra/ui/theme.css';
+
+@source './';
