@@ -1,0 +1,4 @@
+# pnpm's default minimumReleaseAge is one day, which would block picking up a dashboard release
+# on the day it's published. These are our own packages, so skip the wait for them.
+minimumReleaseAgeExclude:
+  - '@oakestra/*'

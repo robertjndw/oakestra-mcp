@@ -1,12 +1,7 @@
-import path from 'node:path';
-
 import { oakestraAddon } from '@oakestra/dashboard-sdk/vite';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
-
-// The SDK and @oakestra/ui are linked from a dashboard checkout next to this repository.
-const dashboardPackages = path.resolve(import.meta.dirname, '../../oakestra-dashboard-v2/packages');
 
 export default defineConfig({
   plugins: [
@@ -17,8 +12,6 @@ export default defineConfig({
     oakestraAddon({ name: 'oakestra-mcp', prefix: 'mcp', port: 5181 }),
   ],
   server: {
-    // The linked sources live outside this folder.
-    fs: { allow: [import.meta.dirname, dashboardPackages] },
     proxy: {
       // Same contract as the addon container's nginx: /api is the backend with the prefix stripped.
       '/api': {

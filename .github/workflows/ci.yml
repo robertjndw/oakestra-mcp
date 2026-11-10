@@ -16,9 +16,6 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  # The UI links @oakestra/dashboard-sdk and @oakestra/ui from this repository, checked out at
-  # the commit in ui/DASHBOARD_REF.
-  DASHBOARD_REPO: robertjndw/oakestra-dashboard-v2
 
 jobs:
   go:
@@ -37,40 +34,31 @@ jobs:
   ui:
     name: UI tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # @oakestra/dashboard-sdk and @oakestra/ui come from GitHub Packages.
+      packages: read
+    defaults:
+      run:
+        working-directory: ui
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      # package.json links ../../oakestra-dashboard-v2, so both checkouts sit side by side.
       - uses: actions/checkout@v5
-        with:
-          path: oakestra-mcp
-      - name: Read dashboard ref
-        id: dashboard
-        run: echo "ref=$(tr -d '[:space:]' < oakestra-mcp/ui/DASHBOARD_REF)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v5
-        with:
-          repository: ${{ env.DASHBOARD_REPO }}
-          ref: ${{ steps.dashboard.outputs.ref }}
-          path: oakestra-dashboard-v2
       - uses: pnpm/action-setup@v4
         with:
-          package_json_file: oakestra-mcp/ui/package.json
+          package_json_file: ui/package.json
+      # registry-url makes setup-node write a user config that reads NODE_AUTH_TOKEN. pnpm
+      # ignores credentials in the repository's own .npmrc.
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-      - name: Install dashboard packages
-        working-directory: oakestra-dashboard-v2
-        run: pnpm install --frozen-lockfile --filter "@oakestra/dashboard-sdk..." --filter "@oakestra/ui..."
-      - name: Install
-        working-directory: oakestra-mcp/ui
-        run: pnpm install --frozen-lockfile
-      - name: Typecheck
-        working-directory: oakestra-mcp/ui
-        run: pnpm typecheck
-      - name: Test
-        working-directory: oakestra-mcp/ui
-        run: pnpm test
-      - name: Build
-        working-directory: oakestra-mcp/ui
-        run: pnpm build
+          registry-url: https://npm.pkg.github.com
+          scope: '@oakestra'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
 
   images:
     name: Image ${{ matrix.image }}
@@ -89,13 +77,6 @@ jobs:
             context: ui
     steps:
       - uses: actions/checkout@v5
-      - name: Check out the dashboard for the UI build
-        if: matrix.image == 'oakestra-mcp-ui'
-        run: |
-          ref=$(tr -d '[:space:]' < ui/DASHBOARD_REF)
-          git init -q "$RUNNER_TEMP/dashboard"
-          git -C "$RUNNER_TEMP/dashboard" fetch -q --depth 1 "https://github.com/$DASHBOARD_REPO.git" "$ref"
-          git -C "$RUNNER_TEMP/dashboard" checkout -q FETCH_HEAD
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
@@ -123,7 +104,9 @@ jobs:
           context: ${{ matrix.context }}
           # Oakestra root orchestrators run on arm64 boards as well as on x86 servers.
           platforms: linux/amd64,linux/arm64
-          build-contexts: ${{ matrix.image == 'oakestra-mcp-ui' && format('dashboard={0}/dashboard', runner.temp) || '' }}
+          # Only the UI image reads it; the server's Dockerfile ignores the secret.
+          secrets: |
+            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
           push: ${{ github.event_name != 'pull_request' }}

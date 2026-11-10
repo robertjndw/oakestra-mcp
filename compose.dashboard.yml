@@ -20,8 +20,8 @@
 # service tools work against its data, but there is no resource abstractor, so the cluster, node
 # and placement tools report that resource data is unavailable.
 #
-# The UI image builds against the dashboard checkout (DASHBOARD_DIR, relative to this file),
-# ideally at the commit in ui/DASHBOARD_REF.
+# The UI image pulls the dashboard packages from GitHub Packages, so export NODE_AUTH_TOKEN with
+# a token that has read:packages first, e.g. `export NODE_AUTH_TOKEN=$(gh auth token)`.
 #
 # Tear down with `docker compose -f compose.dashboard.yml down` before taking the dashboard down,
 # otherwise the dashboard's `down` cannot remove its network while these containers use it.
@@ -35,8 +35,7 @@ services:
     build:
       context: ./ui
       dockerfile: Dockerfile
-      additional_contexts:
-        dashboard: ${DASHBOARD_DIR:-../oakestra-dashboard-v2}
+      secrets: [NODE_AUTH_TOKEN]
     environment:
       # Same value as in oakestra-addon.json.
       API_UPSTREAM: http://root_mcp:8090
@@ -61,6 +60,10 @@ services:
 
 volumes:
   mcp-data:
+
+secrets:
+  NODE_AUTH_TOKEN:
+    environment: NODE_AUTH_TOKEN
 
 networks:
   # Created by the dashboard's compose.dev.yml (project oakestra-dashboard-dev), so it must exist

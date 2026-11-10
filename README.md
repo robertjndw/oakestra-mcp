@@ -52,30 +52,40 @@ should connect to a URL other than the dashboard's.
 
 ### Develop the UI
 
-The UI builds against the dashboard's packages from a sibling checkout, because
-`@oakestra/dashboard-sdk` and `@oakestra/ui` are linked by path (`ui/DASHBOARD_REF` holds the
-dashboard commit it was built against):
+The UI depends on `@oakestra/dashboard-sdk` and `@oakestra/ui` from
+[oakestra/dashboard-v2](https://github.com/oakestra/dashboard-v2), published to GitHub Packages.
+GitHub Packages needs a token even for public packages, and pnpm ignores credentials in a
+repository's `.npmrc`, so put a token with `read:packages` in your user config once:
 
 ```sh
-pnpm --dir ../oakestra-dashboard-v2 install \
-  --filter "@oakestra/dashboard-sdk..." --filter "@oakestra/ui..."
+gh auth refresh -s read:packages
+pnpm config set //npm.pkg.github.com/:_authToken "$(gh auth token)"
+```
+
+Then:
+
+```sh
 pnpm --dir ui install
 pnpm --dir ui typecheck && pnpm --dir ui test && pnpm --dir ui build
 ```
 
+The dashboard is still below 1.0, so `^0.1.0` only picks up patch releases. For a new minor,
+bump both packages in `ui/package.json` together. The dashboard won't load an addon built against
+an SDK version it doesn't match.
+
 For a fast loop, run the backend on `:8090`, then `pnpm --dir ui dev` (port 5181, proxies `/api`
-to the backend) and `pnpm --dir ../oakestra-dashboard-v2 dev:mock`, and open
+to the backend) and, in a checkout of the dashboard, `pnpm dev:mock`, and open
 <http://localhost:5173/?addon-override=oakestra-mcp=http://localhost:5181/mf-manifest.json>.
 
 To run both services as an addon of a dashboard dev stack you already started from the
 dashboard checkout (`docker compose -f compose.dev.yml up --build -d`), run
-`docker compose -f compose.dashboard.yml up --build -d` here. It joins that stack's network and
-publishes the MCP server on port 8090. Then register the addon in the dashboard by adding
-`oakestra-addon.json` to the marketplace and installing it; the comments at the top of the file
-have the details. Build the UI image on its own with:
+`NODE_AUTH_TOKEN=$(gh auth token) docker compose -f compose.dashboard.yml up --build -d` here. It
+joins that stack's network and publishes the MCP server on port 8090. Then register the addon in
+the dashboard by adding `oakestra-addon.json` to the marketplace and installing it; the comments
+at the top of the file have the details. Build the UI image on its own with:
 
 ```sh
-docker buildx build --build-context dashboard=../oakestra-dashboard-v2 -t oakestra-mcp-ui ui
+NODE_AUTH_TOKEN=$(gh auth token) docker buildx build --secret id=NODE_AUTH_TOKEN -t oakestra-mcp-ui ui
 ```
 
 ## Write tools
@@ -117,7 +127,9 @@ pull request, then builds both images for `linux/amd64` and `linux/arm64`:
 | Image | Built from |
 | --- | --- |
 | `ghcr.io/robertjndw/oakestra-mcp` | `Dockerfile` |
-| `ghcr.io/robertjndw/oakestra-mcp-ui` | `ui/Dockerfile`, with the dashboard checked out at `ui/DASHBOARD_REF` |
+| `ghcr.io/robertjndw/oakestra-mcp-ui` | `ui/Dockerfile` |
+
+CI reads the dashboard packages with the workflow's `GITHUB_TOKEN`.
 
 Pushes to `main` publish `latest` (what `oakestra-addon.json` pulls) and `sha-<commit>`; tags
 `vX.Y.Z` also publish `X.Y.Z` and `X.Y`. Pull requests build the images without pushing them.
